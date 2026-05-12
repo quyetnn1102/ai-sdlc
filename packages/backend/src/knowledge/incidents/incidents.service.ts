@@ -101,7 +101,7 @@ export class IncidentsService {
   // ── Timeline ─────────────────────────────────────────────────────────
   async addTimelineEvent(id: string, dto: AddTimelineEventDto) {
     const incident = await this.findById(id);
-    const events = (incident.timeline as TimelineEvent[]) ?? [];
+    const events = (incident.timeline as unknown as TimelineEvent[]) ?? [];
     events.push({
       timestamp: dto.timestamp ?? new Date().toISOString(),
       description: dto.description,

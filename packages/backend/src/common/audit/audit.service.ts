@@ -17,7 +17,15 @@ export type AuditAction =
   | 'GATE_OVERRIDE'
   | 'WEBHOOK_RECEIVED'
   | 'WEBHOOK_PROCESSED'
-  | 'WEBHOOK_FAILED';
+  | 'WEBHOOK_FAILED'
+  | 'CREATE_AGENT_PROFILE'
+  | 'UPDATE_AGENT_PROFILE'
+  | 'DELETE_AGENT_PROFILE'
+  | 'CREATE_PHASE_MAPPING'
+  | 'DELETE_PHASE_MAPPING'
+  | 'START_WORKFLOW_EXECUTION'
+  | 'CANCEL_WORKFLOW_EXECUTION'
+  | 'PERMISSION_DENIED';
 
 export interface AuditEntry {
   userId?: string;
@@ -42,7 +50,7 @@ export class AuditService {
           userId: entry.userId ?? null,
           action: entry.action,
           resource: entry.resource ?? null,
-          details: entry.details ?? {},
+          details: (entry.details ?? {}) as any,
           ipAddress: entry.ipAddress ?? null,
         },
       })

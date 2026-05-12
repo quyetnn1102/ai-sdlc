@@ -23,7 +23,7 @@ export class WebhooksService {
     externalId?: string,
   ) {
     return this.prisma.webhookEvent.create({
-      data: { source, eventType, payload, externalId },
+      data: { source, eventType, payload: payload as any, externalId },
     });
   }
 

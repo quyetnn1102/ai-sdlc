@@ -6,6 +6,7 @@ import {
   Delete,
   Param,
   Body,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -15,13 +16,17 @@ import {
   CreateAgentProfileDto,
   CreateMappingDto,
 } from './agents.service';
+import { LlmRouterService } from '../agent-runtime/llm-router.service';
 
 @ApiTags('Agent Profiles')
 @Controller('projects/:projectId/agents')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class AgentsController {
-  constructor(private readonly agentsService: AgentsService) {}
+  constructor(
+    private readonly agentsService: AgentsService,
+    private readonly llmRouter: LlmRouterService,
+  ) {}
 
   // ── Default seeding ───────────────────────────────────────────────────
   @Post('seed')
@@ -42,8 +47,15 @@ export class AgentsController {
 
   @Get('profiles')
   @ApiOperation({ summary: 'List agent profiles (project-specific + global defaults)' })
-  listProfiles(@Param('projectId') projectId: string) {
-    return this.agentsService.listProfiles(projectId);
+  listProfiles(
+    @Param('projectId') projectId: string,
+    @Query('page')  page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.agentsService.listProfiles(projectId, {
+      page:  page  ? parseInt(page,  10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    }).then((res) => res.data); // unwrap for frontend backward compat
   }
 
   @Get('profiles/:id')
@@ -107,5 +119,17 @@ export class AgentsController {
   })
   validateMappings(@Param('projectId') projectId: string) {
     return this.agentsService.validateMappings(projectId);
+  }
+
+  // ── LLM Provider info ─────────────────────────────────────────────────
+  @Get('llm-providers')
+  @ApiOperation({
+    summary: 'List available LLM providers and the default (claude, openai, azure, simulate)',
+  })
+  getLlmProviders() {
+    return {
+      available: this.llmRouter.availableProviders(),
+      default: this.llmRouter.getDefaultProvider(),
+    };
   }
 }

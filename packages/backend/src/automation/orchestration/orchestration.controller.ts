@@ -5,12 +5,14 @@ import {
   Patch,
   Body,
   Param,
+  Query,
   UseGuards,
   Request,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiBody } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../../platform/auth/guards/jwt-auth.guard';
 import {
   OrchestrationService,
@@ -29,8 +31,9 @@ import {
 export class OrchestrationController {
   constructor(private readonly orchestration: OrchestrationService) {}
 
-  /** Req 9.1 — Start a new workflow execution */
+  /** Req 9.1 — Start a new workflow execution (rate limited: 10 per minute per IP) */
   @Post()
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
   @ApiOperation({ summary: 'Start a new workflow execution for this project' })
   start(
     @Param('projectId') projectId: string,
@@ -45,11 +48,18 @@ export class OrchestrationController {
     return this.orchestration.start(dto);
   }
 
-  /** List all executions for a project */
+  /** List all executions for a project (paginated) */
   @Get()
-  @ApiOperation({ summary: 'List workflow executions for this project' })
-  list(@Param('projectId') projectId: string) {
-    return this.orchestration.listExecutions(projectId);
+  @ApiOperation({ summary: 'List workflow executions for this project (paginated)' })
+  list(
+    @Param('projectId') projectId: string,
+    @Query('page')  page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.orchestration.listExecutions(projectId, {
+      page:  page  ? parseInt(page,  10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
   }
 
   /** Req 8.1 — Full execution detail with progress % and at-risk flags */

@@ -18,6 +18,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { OrchestrationService } from '../orchestration/orchestration.service';
+import { LlmRouterService } from './llm-router.service';
+import { buildPrompt } from './providers/prompt-builder';
 
 export interface AgentContext {
   workflowExecutionId: string;
@@ -55,6 +57,7 @@ export class AgentExecutorService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly orchestration: OrchestrationService,
+    private readonly llmRouter: LlmRouterService,
   ) {}
 
   // ─────────────────────────────────────────────────────────────────────
@@ -167,7 +170,7 @@ export class AgentExecutorService {
               type: this._mapArtifactType(a.artifactType),
               name: a.name,
               contentRef: a.contentRef,
-              metadata: a.metadata ?? {},
+              metadata: (a.metadata ?? {}) as any,
             },
           }),
         ),
@@ -255,36 +258,74 @@ export class AgentExecutorService {
   }
 
   // ─────────────────────────────────────────────────────────────────────
-  // Agent work stub — replace with real LLM/tool invocation in production
+  // Agent work — calls the configured LLM provider
   // ─────────────────────────────────────────────────────────────────────
 
   private async _runAgentWork(
     ctx: AgentContext,
     signal: AbortSignal,
   ): Promise<ProducedArtifact[]> {
-    // In v4 initial release this is an in-process simulation.
-    // Real implementation: call an LLM API / tool executor / microservice.
-    //
-    // The agent reads ctx.inputArtifacts from upstream tasks and produces
-    // one or more artifacts relevant to ctx.phaseName.
-
-    const SIMULATED_WORK_MS = 500; // short for tests; real agents take minutes
-
-    if (signal.aborted) return [];
-    await this._sleep(SIMULATED_WORK_MS);
     if (signal.aborted) return [];
 
-    // Produce a representative artifact for the phase
+    // Load agent profile to get role, skills, and LLM config
+    const profile = await this.prisma.agentProfile.findUnique({
+      where: { id: ctx.agentProfileId },
+      select: { name: true, role: true, skillSet: true, config: true },
+    });
+
+    const profileConfig = (profile?.config ?? {}) as {
+      provider?: string;
+      model?: string;
+      systemPrompt?: string;
+      projectContext?: string;
+    };
+
+    // Build role-specific prompt with upstream artifacts as context
+    const messages = buildPrompt({
+      phaseName: ctx.phaseName,
+      agentRole: profile?.role ?? 'UNKNOWN',
+      agentName: profile?.name ?? ctx.agentProfileId,
+      skillSet: profile?.skillSet ?? [],
+      customSystemPrompt: profileConfig.systemPrompt,
+      projectContext: profileConfig.projectContext,
+      inputArtifacts: ctx.inputArtifacts,
+    });
+
+    this.logger.log(
+      `Agent ${ctx.agentInstanceId} calling LLM ` +
+      `(provider=${profileConfig.provider ?? 'default'}, phase=${ctx.phaseName})`,
+    );
+
+    // Call the LLM
+    const response = await this.llmRouter.call(profileConfig.provider, messages, signal);
+
+    if (signal.aborted) return [];
+
+    this.logger.log(
+      `Agent ${ctx.agentInstanceId} LLM response received ` +
+      `(model=${response.model}, tokens=${response.usage?.outputTokens ?? '?'})`,
+    );
+
+    // Determine artifact type from phase name
+    const artifactType = this._defaultArtifactType(ctx.phaseName);
+    const fileName = `${ctx.phaseName.toLowerCase().replace(/\s+/g, '-')}-output.md`;
+    const contentRef = `artifacts/${ctx.workflowExecutionId}/${ctx.workflowTaskId}/${fileName}`;
+
     return [
       {
-        artifactType: this._defaultArtifactType(ctx.phaseName),
-        name: `${ctx.phaseName.toLowerCase().replace(/\s+/g, '-')}-output.md`,
-        contentRef: `artifacts/${ctx.workflowExecutionId}/${ctx.workflowTaskId}/output.md`,
+        artifactType,
+        name: fileName,
+        contentRef,
         metadata: {
           phaseName: ctx.phaseName,
           agentProfileId: ctx.agentProfileId,
+          provider: response.model ?? profileConfig.provider ?? 'simulate',
+          inputTokens: response.usage?.inputTokens,
+          outputTokens: response.usage?.outputTokens,
           inputArtifactCount: ctx.inputArtifacts.length,
-          simulatedWork: true,
+          // Store the actual LLM output inline for small artifacts
+          // For large outputs, this would be written to object storage
+          content: response.content,
         },
       },
     ];

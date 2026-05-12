@@ -1,5 +1,5 @@
-import { Controller, Get, Post, Body, Param, UseGuards, Request } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { Controller, Get, Post, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OrganizationsService } from './organizations.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
@@ -18,9 +18,18 @@ export class OrganizationsController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List organizations for current user' })
-  findAll(@Request() req: any) {
-    return this.organizationsService.findAll(req.user.id);
+  @ApiOperation({ summary: 'List organizations for current user (paginated)' })
+  @ApiQuery({ name: 'page',  required: false, type: Number, description: 'Page number (default: 1)' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page (default: 20, max: 100)' })
+  findAll(
+    @Request() req: any,
+    @Query('page')  page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.organizationsService.findAll(req.user.id, {
+      page:  page  ? parseInt(page,  10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
   }
 
   @Get(':id')

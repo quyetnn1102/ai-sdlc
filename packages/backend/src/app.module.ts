@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 
 // Common
 import { PrismaModule } from './common/prisma/prisma.module';
@@ -39,6 +41,13 @@ import { AutomationModule } from './automation/automation.module';
       envFilePath: ['.env.local', '.env'],
     }),
 
+    // Rate limiting — 100 requests per 60 seconds per IP globally
+    // Individual endpoints can override with @Throttle() decorator
+    ThrottlerModule.forRoot([{
+      ttl: 60000,  // 60 seconds
+      limit: 100,
+    }]),
+
     // Database (global — PrismaService injectable everywhere)
     PrismaModule,
 
@@ -72,6 +81,10 @@ import { AutomationModule } from './automation/automation.module';
 
     // ── Automation (v4) ──
     AutomationModule,
+  ],
+  providers: [
+    // Apply rate limiting globally — individual endpoints can override with @Throttle()
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })
 export class AppModule {}

@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { AuditService } from '../../common/audit/audit.service';
 
 export interface CreateAgentProfileDto {
   name: string;
@@ -79,7 +80,10 @@ const DEFAULT_PROFILES = [
 
 @Injectable()
 export class AgentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   // ── Agent Profiles ────────────────────────────────────────────────────
 
@@ -112,7 +116,7 @@ export class AgentsService {
       throw new BadRequestException('Agent profile must support at least one SDLC phase');
     }
 
-    return this.prisma.agentProfile.create({
+    const profile = await this.prisma.agentProfile.create({
       data: {
         projectId,
         name: dto.name,
@@ -120,17 +124,35 @@ export class AgentsService {
         description: dto.description,
         skillSet: dto.skillSet,
         supportedPhases: dto.supportedPhases,
-        config: dto.config ?? {},
+        config: (dto.config ?? {}) as any,
       },
     });
+    this.audit.log({
+      action: 'CREATE_AGENT_PROFILE',
+      resource: `agent_profile:${profile.id}`,
+      details: { name: profile.name, role: profile.role, projectId },
+    });
+    return profile;
   }
 
-  async listProfiles(projectId: string) {
-    return this.prisma.agentProfile.findMany({
-      where: { OR: [{ projectId }, { projectId: null, isDefault: true }] },
-      include: { _count: { select: { phaseMappings: true } } },
-      orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
-    });
+  async listProfiles(projectId: string, query: { page?: number; limit?: number } = {}) {
+    const page  = Math.max(1, query.page  ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 50));
+    const skip  = (page - 1) * limit;
+
+    const where = { OR: [{ projectId }, { projectId: null, isDefault: true }] };
+    const [data, total] = await Promise.all([
+      this.prisma.agentProfile.findMany({
+        where,
+        include: { _count: { select: { phaseMappings: true } } },
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+        skip,
+        take: limit,
+      }),
+      this.prisma.agentProfile.count({ where }),
+    ]);
+
+    return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   async getProfile(id: string) {
@@ -165,16 +187,22 @@ export class AgentsService {
       throw new BadRequestException('Agent profile must support at least one SDLC phase');
     }
 
-    return this.prisma.agentProfile.update({
+    const updated = await this.prisma.agentProfile.update({
       where: { id },
       data: {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
         ...(dto.description !== undefined ? { description: dto.description } : {}),
         ...(dto.skillSet !== undefined ? { skillSet: dto.skillSet } : {}),
         ...(dto.supportedPhases !== undefined ? { supportedPhases: dto.supportedPhases } : {}),
-        ...(dto.config !== undefined ? { config: dto.config } : {}),
-      },
+        ...(dto.config !== undefined ? { config: dto.config as any } : {}),
+      } as any,
     });
+    this.audit.log({
+      action: 'UPDATE_AGENT_PROFILE',
+      resource: `agent_profile:${id}`,
+      details: dto as Record<string, unknown>,
+    });
+    return updated;
   }
 
   async deleteProfile(id: string) {
@@ -190,7 +218,12 @@ export class AgentsService {
       );
     }
 
-    return this.prisma.agentProfile.delete({ where: { id } });
+    const deleted = await this.prisma.agentProfile.delete({ where: { id } });
+    this.audit.log({
+      action: 'DELETE_AGENT_PROFILE',
+      resource: `agent_profile:${id}`,
+    });
+    return deleted;
   }
 
   // ── Phase-to-Agent Mappings ───────────────────────────────────────────

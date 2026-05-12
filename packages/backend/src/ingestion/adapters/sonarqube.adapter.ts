@@ -30,8 +30,8 @@ export class SonarQubeAdapter {
         buildId,
         source: 'SONARQUBE',
         coverage,
-        issues,
-        rawData,
+        issues: issues as any,
+        rawData: rawData as any,
       },
     });
   }

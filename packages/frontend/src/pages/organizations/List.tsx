@@ -8,11 +8,12 @@ import { Table } from '@/components/ui/Table';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { ApiError } from '@/lib/api';
 
 export function OrganizationsPage() {
   const { t } = useTranslation();
-  const { data: orgs, loading, refetch } = useQuery(() => organizationsService.list(), []);
+  const { data: orgs, loading, error, refetch } = useQuery(() => organizationsService.list(), []);
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState<CreateOrgPayload>({ name: '', key: '', description: '' });
   const [saving, setSaving] = useState(false);
@@ -40,6 +41,8 @@ export function OrganizationsPage() {
         title={t('organizations.title')}
         actions={<Button onClick={() => setModalOpen(true)}>{t('organizations.create')}</Button>}
       />
+
+      <ErrorAlert message={error} onRetry={refetch} />
 
       <Table
         loading={loading}

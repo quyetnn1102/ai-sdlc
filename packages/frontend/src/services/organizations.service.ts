@@ -28,7 +28,17 @@ export interface CreateOrgPayload { name: string; key: string; description?: str
 export interface CreateProjectPayload { name: string; key: string; description?: string; timezone?: string; }
 
 export const organizationsService = {
-  list: () => api.get<Organization[]>('/organizations'),
+  list: (page = 1, limit = 20) =>
+    api.get<{ data: Organization[]; total: number; page: number; limit: number; totalPages: number }>(
+      '/organizations',
+      { page: String(page), limit: String(limit) },
+    ).then((res) => res.data), // unwrap for backward compat — pages just get the array
+
+  listPaginated: (page = 1, limit = 20) =>
+    api.get<{ data: Organization[]; total: number; page: number; limit: number; totalPages: number }>(
+      '/organizations',
+      { page: String(page), limit: String(limit) },
+    ),
 
   get: (id: string) => api.get<OrgDetail>(`/organizations/${id}`),
 

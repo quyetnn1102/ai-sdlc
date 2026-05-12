@@ -80,8 +80,7 @@ export class GitHubAdapter {
         status,
         linkedIssueKey,
         mergedAt: pr.merged_at ? new Date(pr.merged_at) : null,
-        updatedAt: new Date(),
-      },
+      } as any,
       create: {
         projectId,
         externalId: String(pr.number),
@@ -124,9 +123,8 @@ export class GitHubAdapter {
       where: { projectId_externalId: { projectId, externalId: String(run.id) } },
       update: {
         status,
-        updatedAt: new Date(),
         finishedAt: run.updated_at ? new Date(run.updated_at) : null,
-      },
+      } as any,
       create: {
         projectId,
         externalId: String(run.id),
@@ -158,7 +156,7 @@ export class GitHubAdapter {
           projectId,
           externalId: String(deployment.id),
         },
-      } as Parameters<typeof this.prisma.deployment.upsert>[0]['where'],
+      } as any,
       update: { status },
       create: {
         projectId,

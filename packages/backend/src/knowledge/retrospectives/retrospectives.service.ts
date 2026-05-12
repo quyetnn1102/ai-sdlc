@@ -80,7 +80,7 @@ export class RetrospectivesService {
   // ── Toggle a single action item completion ────────────────────────────
   async toggleActionItem(retroId: string, itemIndex: number, completed: boolean) {
     const retro = await this.findById(retroId);
-    const items = (retro.actionItems as ActionItem[]) ?? [];
+    const items = (retro.actionItems as unknown as ActionItem[]) ?? [];
     if (itemIndex < 0 || itemIndex >= items.length) {
       throw new NotFoundException('Action item index out of range');
     }

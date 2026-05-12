@@ -65,4 +65,15 @@ export const agentsService = {
 
   deleteMapping: (projectId: string, id: string) =>
     api.delete<void>(`/projects/${projectId}/agents/mappings/${id}`),
+
+  validateMappings: (projectId: string) =>
+    api.post<{
+      valid: boolean;
+      issues: Array<{ phaseId: string; phaseName: string; agentProfileId?: string; issue: string; message: string }>;
+    }>(`/projects/${projectId}/agents/mappings/validate`),
+
+  getLlmProviders: (projectId: string) =>
+    api.get<{ available: string[]; default: string }>(
+      `/projects/${projectId}/agents/llm-providers`,
+    ),
 };

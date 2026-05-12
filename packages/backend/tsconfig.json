@@ -11,6 +11,11 @@
     },
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
+    "strictPropertyInitialization": false,
+    "strictNullChecks": false,
+    "strictFunctionTypes": false,
+    "strictBindCallApply": false,
+    "noImplicitAny": false,
     "noUnusedLocals": false,
     "noUnusedParameters": false
   },
