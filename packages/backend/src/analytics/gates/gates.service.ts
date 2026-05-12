@@ -1,21 +1,25 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { AuditService } from '../../common/audit/audit.service';
 import { CreateGateDto } from './dto/create-gate.dto';
 
 export interface RuleConfig {
-  threshold?: number;     // for MIN_COVERAGE
-  max?: number;           // for MAX_CRITICAL_ISSUES
-  checkName?: string;     // for CI_CHECK_PASS
-  severity?: string;      // for MAX_CRITICAL_ISSUES (CRITICAL | BLOCKER)
+  threshold?: number;
+  max?: number;
+  checkName?: string;
+  severity?: string;
 }
 
 @Injectable()
 export class GatesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   // ── CRUD ──────────────────────────────────────────────────────────────
-  async create(projectId: string, dto: CreateGateDto) {
-    return this.prisma.gateDefinition.create({
+  async create(projectId: string, dto: CreateGateDto, userId?: string) {
+    const gate = await this.prisma.gateDefinition.create({
       data: {
         projectId,
         workflowPhaseId: dto.workflowPhaseId,
@@ -25,6 +29,8 @@ export class GatesService {
         enforcement: dto.enforcement ?? 'ADVISORY',
       },
     });
+    this.audit.log({ userId, action: 'CREATE_GATE', resource: `gate:${gate.id}`, details: { name: gate.name, ruleType: gate.ruleType } });
+    return gate;
   }
 
   async findByProject(projectId: string) {
@@ -50,8 +56,9 @@ export class GatesService {
     return gate;
   }
 
-  async delete(id: string) {
+  async delete(id: string, userId?: string) {
     await this.findById(id);
+    this.audit.log({ userId, action: 'DELETE_GATE', resource: `gate:${id}` });
     return this.prisma.gateDefinition.delete({ where: { id } });
   }
 

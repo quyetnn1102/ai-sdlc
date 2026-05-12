@@ -26,9 +26,12 @@ export function ProjectDetailPage() {
     { path: `/projects/${id}/metrics`,  label: t('projects.metrics') },
     { path: `/projects/${id}/trace`,    label: t('projects.traceability') },
     { path: `/projects/${id}/retros`,   label: t('projects.retrospectives') },
-    { path: `/projects/${id}/tests`,    label: 'Tests' },
-    { path: `/projects/${id}/incidents`,label: 'Incidents' },
-    { path: `/projects/${id}/settings`, label: t('projects.settings') },
+    { path: `/projects/${id}/tests`,      label: 'Tests' },
+    { path: `/projects/${id}/test-plans`, label: 'Test Plans' },
+    { path: `/projects/${id}/incidents`,  label: 'Incidents' },
+    { path: `/projects/${id}/agents`,     label: 'Agents' },
+    { path: `/projects/${id}/executions`, label: 'Run Workflow' },
+    { path: `/projects/${id}/settings`,   label: t('projects.settings') },
   ];
 
   return (

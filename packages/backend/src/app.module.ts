@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 // Common
 import { PrismaModule } from './common/prisma/prisma.module';
 import { HealthModule } from './common/health/health.module';
+import { AuditModule } from './common/audit/audit.module';
 
 // ── Platform Service ───────────────────────────────────────────────────
 import { AuthModule } from './platform/auth/auth.module';
@@ -28,6 +29,7 @@ import { TraceabilityModule } from './knowledge/traceability/traceability.module
 import { RetrospectivesModule } from './knowledge/retrospectives/retrospectives.module';
 import { TestManagementModule } from './knowledge/test-management/test-management.module';
 import { IncidentsModule } from './knowledge/incidents/incidents.module';
+import { AutomationModule } from './automation/automation.module';
 
 @Module({
   imports: [
@@ -42,6 +44,7 @@ import { IncidentsModule } from './knowledge/incidents/incidents.module';
 
     // Infrastructure
     HealthModule,
+    AuditModule,
 
     // ── Platform ──
     AuthModule,
@@ -66,6 +69,9 @@ import { IncidentsModule } from './knowledge/incidents/incidents.module';
     RetrospectivesModule,
     TestManagementModule,
     IncidentsModule,
+
+    // ── Automation (v4) ──
+    AutomationModule,
   ],
 })
 export class AppModule {}

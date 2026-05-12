@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { AuditService } from '../../common/audit/audit.service';
 import { CreateIntegrationDto, UpdateIntegrationDto } from './dto/create-integration.dto';
 import * as crypto from 'crypto';
 
@@ -7,7 +8,10 @@ import * as crypto from 'crypto';
 export class IntegrationsService {
   private readonly algorithm = 'aes-256-gcm';
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   // ── Encryption helpers (envelope encryption stub) ──────────────────────
   private getEncryptionKey(): Buffer {
@@ -41,14 +45,12 @@ export class IntegrationsService {
   }
 
   // ── CRUD ───────────────────────────────────────────────────────────────
-  async create(projectId: string, dto: CreateIntegrationDto) {
+  async create(projectId: string, dto: CreateIntegrationDto, userId?: string) {
     const integration = await this.prisma.integration.create({
       data: { projectId, type: dto.type },
     });
-
-    if (dto.settings) {
-      await this.upsertSettings(integration.id, dto.settings);
-    }
+    if (dto.settings) await this.upsertSettings(integration.id, dto.settings);
+    this.audit.log({ userId, action: 'CREATE_INTEGRATION', resource: `integration:${integration.id}`, details: { type: dto.type, projectId } });
     return this.findById(integration.id);
   }
 
@@ -69,23 +71,21 @@ export class IntegrationsService {
     return integration;
   }
 
-  async update(id: string, dto: UpdateIntegrationDto) {
+  async update(id: string, dto: UpdateIntegrationDto, userId?: string) {
     await this.findById(id);
-    if (dto.settings) {
-      await this.upsertSettings(id, dto.settings);
-    }
-    return this.prisma.integration.update({
+    if (dto.settings) await this.upsertSettings(id, dto.settings);
+    const result = await this.prisma.integration.update({
       where: { id },
-      data: {
-        ...(dto.status ? { status: dto.status } : {}),
-        updatedAt: new Date(),
-      },
+      data: { ...(dto.status ? { status: dto.status } : {}), updatedAt: new Date() },
       include: { settings: true },
     });
+    this.audit.log({ userId, action: 'UPDATE_INTEGRATION', resource: `integration:${id}`, details: { status: dto.status } });
+    return result;
   }
 
-  async delete(id: string) {
+  async delete(id: string, userId?: string) {
     await this.findById(id);
+    this.audit.log({ userId, action: 'DELETE_INTEGRATION', resource: `integration:${id}` });
     return this.prisma.integration.delete({ where: { id } });
   }
 

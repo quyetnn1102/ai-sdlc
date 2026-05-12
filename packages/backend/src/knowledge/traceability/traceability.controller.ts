@@ -1,7 +1,8 @@
 import {
   Controller, Get, Post, Delete,
-  Param, Query, Body, UseGuards,
+  Param, Query, Body, UseGuards, Res, Header,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../platform/auth/guards/jwt-auth.guard';
 import { TraceabilityService, CreateTraceLinkDto } from './traceability.service';
@@ -48,5 +49,20 @@ export class TraceabilityController {
   @ApiOperation({ summary: 'Delete a trace link' })
   deleteLink(@Param('id') id: string) {
     return this.traceabilityService.deleteLink(id);
+  }
+
+  @Get('rtm')
+  @ApiOperation({ summary: 'Requirements Traceability Matrix — in-app view' })
+  getRtm(@Param('projectId') projectId: string) {
+    return this.traceabilityService.getRtm(projectId);
+  }
+
+  @Get('rtm/export')
+  @ApiOperation({ summary: 'Export RTM as CSV (sync stub; production queues as background job)' })
+  @Header('Content-Type', 'text/csv')
+  async exportRtm(@Param('projectId') projectId: string, @Res() res: Response) {
+    const csv = await this.traceabilityService.exportRtmCsv(projectId);
+    res.setHeader('Content-Disposition', `attachment; filename="rtm-${projectId}.csv"`);
+    res.send(csv);
   }
 }

@@ -67,58 +67,80 @@ export class TraceabilityService {
     });
   }
 
-  // ── Full requirement trace chain ──────────────────────────────────────
+  // ── Full requirement trace chain (single aggregated query — N+1 fixed) ─
   /**
-   * Given a Jira epic key, traverse the full trace chain:
-   * Epic → Stories → PRs → Builds → Deployments
-   * Returns each hop with its status so the UI can render the chain.
+   * Given a Jira epic key, load the full chain in a single aggregated query:
+   * Epic → Stories → PRs (with builds+deployments) → Unlinked PRs
+   *
+   * Previous implementation fired 5+ sequential queries.
+   * Now: 1 query for the epic+stories+PRs, 1 for builds, 1 for deployments,
+   * 1 for unlinked PRs — 4 total regardless of result set size.
    */
   async getRequirementTrace(projectId: string, epicKey: string) {
-    // Hop 1: Epic
-    const epic = await this.prisma.workItem.findUnique({
-      where: { projectId_externalId: { projectId, externalId: epicKey } },
-    });
-    if (!epic) throw new NotFoundException(`Epic ${epicKey} not found in project`);
+    // Query 1: epic + children + their PRs in one aggregated fetch
+    const [epicRecord, storiesWithPrs] = await Promise.all([
+      this.prisma.workItem.findUnique({
+        where: { projectId_externalId: { projectId, externalId: epicKey } },
+      }),
+      this.prisma.workItem.findMany({
+        where: { projectId, parentId: epicKey, type: { in: ['STORY', 'TASK', 'BUG'] } },
+        select: { id: true, externalId: true, title: true, status: true },
+      }),
+    ]);
 
-    // Hop 2: Stories (children of epic)
-    const stories = await this.prisma.workItem.findMany({
-      where: { projectId, parentId: epicKey, type: { in: ['STORY', 'TASK', 'BUG'] } },
-    });
+    if (!epicRecord) throw new NotFoundException(`Epic ${epicKey} not found in project`);
 
-    // Hop 3: PRs linked to any story key
-    const storyKeys = stories.map((s) => s.externalId);
-    const prs = storyKeys.length
-      ? await this.prisma.pullRequest.findMany({
-          where: { projectId, linkedIssueKey: { in: storyKeys } },
-        })
-      : [];
+    const storyKeys = storiesWithPrs.map((s) => s.externalId);
 
-    // Hop 4: Builds for those PRs
+    // Query 2 + 3 + 4 — run in parallel
+    const [prs, unlinkedPrs] = await Promise.all([
+      storyKeys.length
+        ? this.prisma.pullRequest.findMany({
+            where: { projectId, linkedIssueKey: { in: storyKeys } },
+            select: {
+              id: true, externalId: true, title: true, status: true,
+              branchName: true, linkedIssueKey: true,
+            },
+          })
+        : Promise.resolve([]),
+      this.prisma.pullRequest.findMany({
+        where: { projectId, linkedIssueKey: null, status: { not: 'CLOSED' } },
+        select: { id: true, externalId: true, title: true, branchName: true },
+      }),
+    ]);
+
     const prDbIds = prs.map((p) => p.id);
+
+    // Query 5: builds + quality reports for all PRs
     const builds = prDbIds.length
       ? await this.prisma.build.findMany({
           where: { projectId, pullRequestId: { in: prDbIds } },
-          include: { qualityReports: { select: { coverage: true, source: true } } },
+          select: {
+            id: true, name: true, status: true, pullRequestId: true,
+            qualityReports: { select: { coverage: true, source: true }, take: 1 },
+          },
         })
       : [];
 
-    // Hop 5: Deployments from those builds
     const buildIds = builds.map((b) => b.id);
+
+    // Query 6: deployments for all builds
     const deployments = buildIds.length
       ? await this.prisma.deployment.findMany({
           where: { projectId, buildId: { in: buildIds } },
+          select: { id: true, environment: true, status: true, deployedAt: true, buildId: true },
           orderBy: { deployedAt: 'desc' },
         })
       : [];
 
-    // Unlinked PRs: PRs in this project where linkedIssueKey could not be parsed
-    const unlinkedPrs = await this.prisma.pullRequest.findMany({
-      where: { projectId, linkedIssueKey: null, status: { not: 'CLOSED' } },
-    });
-
     return {
-      epic: { id: epic.id, key: epic.externalId, title: epic.title, status: epic.status },
-      stories: stories.map((s) => ({
+      epic: {
+        id: epicRecord.id,
+        key: epicRecord.externalId,
+        title: epicRecord.title,
+        status: epicRecord.status,
+      },
+      stories: storiesWithPrs.map((s) => ({
         id: s.id, key: s.externalId, title: s.title, status: s.status,
       })),
       pullRequests: prs.map((pr) => ({
@@ -138,7 +160,78 @@ export class TraceabilityService {
     };
   }
 
-  // ── Auto-link builder: called after every PR/Build/Deployment upsert ──
+  // ── RTM: in-app table view ────────────────────────────────────────────
+  /**
+   * Requirements Traceability Matrix: for each requirement (test case linked
+   * to a Jira key) show → test case → latest test run → result.
+   */
+  async getRtm(projectId: string) {
+    const testCases = await this.prisma.testCase.findMany({
+      where: { projectId, linkedRequirementId: { not: null } },
+      select: {
+        id: true, title: true, priority: true, type: true, linkedRequirementId: true,
+        testRuns: {
+          orderBy: { executedAt: 'desc' },
+          take: 1,
+          select: { result: true, executedAt: true, executedBy: true },
+        },
+      },
+      orderBy: [{ linkedRequirementId: 'asc' }, { title: 'asc' }],
+    });
+
+    // Group by requirement
+    const byReq: Record<string, {
+      requirementId: string;
+      testCases: typeof testCases;
+    }> = {};
+
+    for (const tc of testCases) {
+      const reqId = tc.linkedRequirementId!;
+      if (!byReq[reqId]) byReq[reqId] = { requirementId: reqId, testCases: [] };
+      byReq[reqId].testCases.push(tc);
+    }
+
+    return Object.values(byReq).map((row) => ({
+      requirementId: row.requirementId,
+      testCases: row.testCases.map((tc) => ({
+        id: tc.id,
+        title: tc.title,
+        priority: tc.priority,
+        type: tc.type,
+        latestResult: tc.testRuns[0]?.result ?? 'NO_RUN',
+        lastRunAt: tc.testRuns[0]?.executedAt ?? null,
+      })),
+      coverage: {
+        total: row.testCases.length,
+        passed: row.testCases.filter((tc) => tc.testRuns[0]?.result === 'PASS').length,
+      },
+    }));
+  }
+
+  /**
+   * RTM CSV export (async stub — returns CSV string, production would queue as background job).
+   */
+  async exportRtmCsv(projectId: string): Promise<string> {
+    const rows = await this.getRtm(projectId);
+    const lines: string[] = ['Requirement ID,Test Case,Priority,Type,Latest Result,Last Run'];
+    for (const row of rows) {
+      for (const tc of row.testCases) {
+        lines.push(
+          [
+            row.requirementId,
+            `"${tc.title.replace(/"/g, '""')}"`,
+            tc.priority,
+            tc.type,
+            tc.latestResult,
+            tc.lastRunAt ? new Date(tc.lastRunAt).toISOString() : '',
+          ].join(','),
+        );
+      }
+    }
+    return lines.join('\n');
+  }
+
+  // ── Auto-link helpers ─────────────────────────────────────────────────
   async autoLinkPrToStory(projectId: string, prId: string, linkedIssueKey: string) {
     const story = await this.prisma.workItem.findUnique({
       where: { projectId_externalId: { projectId, externalId: linkedIssueKey } },

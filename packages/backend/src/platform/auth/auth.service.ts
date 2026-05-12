@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/co
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
+import { AuditService } from '../../common/audit/audit.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 
@@ -10,6 +11,7 @@ export class AuthService {
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
+    private readonly audit: AuditService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -26,6 +28,7 @@ export class AuthService {
     });
 
     const token = this.generateToken(user.id, user.email);
+    this.audit.log({ userId: user.id, action: 'REGISTER', resource: `user:${user.id}`, details: { email: user.email } });
     return { user: { id: user.id, email: user.email, name: user.name }, token };
   }
 
@@ -41,6 +44,7 @@ export class AuthService {
     }
 
     const token = this.generateToken(user.id, user.email);
+    this.audit.log({ userId: user.id, action: 'LOGIN', resource: `user:${user.id}`, details: { email: user.email } });
     return { user: { id: user.id, email: user.email, name: user.name }, token };
   }
 

@@ -30,6 +30,10 @@ import { TestsPage } from './pages/projects/Tests';
 import { TestPlansPage } from './pages/projects/TestPlans';
 import { IncidentsPage } from './pages/projects/Incidents';
 
+// Projects – v4 agent automation
+import { AgentsPage } from './pages/projects/Agents';
+import { ExecutionsPage } from './pages/projects/Executions';
+
 export default function App() {
   return (
     <Routes>
@@ -62,6 +66,8 @@ export default function App() {
           <Route path="/projects/:id/tests"     element={<TestsPage />} />
           <Route path="/projects/:id/test-plans" element={<TestPlansPage />} />
           <Route path="/projects/:id/incidents" element={<IncidentsPage />} />
+          <Route path="/projects/:id/agents"    element={<AgentsPage />} />
+          <Route path="/projects/:id/executions" element={<ExecutionsPage />} />
           <Route path="/projects/:id/settings"  element={<SettingsPage />} />
 
           {/* Fallback */}
