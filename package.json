@@ -1,0 +1,21 @@
+{
+  "name": "ai-sdlc",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI Software Development Life Cycle Hub - Monorepo",
+  "scripts": {
+    "dev:backend": "pnpm --filter @ai-sdlc/backend dev",
+    "dev:frontend": "pnpm --filter @ai-sdlc/frontend dev",
+    "build:backend": "pnpm --filter @ai-sdlc/backend build",
+    "build:frontend": "pnpm --filter @ai-sdlc/frontend build",
+    "lint": "pnpm -r lint",
+    "format": "prettier --write \"packages/**/*.{ts,tsx,js,json,css,md}\"",
+    "db:migrate": "pnpm --filter @ai-sdlc/backend db:migrate",
+    "db:generate": "pnpm --filter @ai-sdlc/backend db:generate",
+    "db:seed": "pnpm --filter @ai-sdlc/backend db:seed"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

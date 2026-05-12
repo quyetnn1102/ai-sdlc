@@ -1,0 +1,681 @@
+// SDLC Hub — Prisma Schema
+// Covers: Platform Service (v1), Ingestion Service (v1-v2), Analytics Service (v1-v2),
+//         Knowledge Service (v2-v3), AI-DLC (v3)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// PLATFORM SERVICE
+// ============================================
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String
+  password  String
+  avatarUrl String?  @map("avatar_url")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  memberships Membership[]
+  auditLogs   AuditLog[]
+
+  @@map("users")
+}
+
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  key         String   @unique
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  memberships Membership[]
+  projects    Project[]
+
+  @@map("organizations")
+}
+
+model Membership {
+  id             String   @id @default(uuid())
+  role           String   @default("MEMBER") // ADMIN, PROJECT_OWNER, DEVELOPER, QA, DEVOPS, READONLY
+  userId         String   @map("user_id")
+  organizationId String   @map("organization_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@map("memberships")
+}
+
+model Project {
+  id             String   @id @default(uuid())
+  name           String
+  key            String
+  description    String?
+  timezone       String   @default("UTC")
+  organizationId String   @map("organization_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization      Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integrations      Integration[]
+  workflowPhases    WorkflowPhase[]
+  gateDefinitions   GateDefinition[]
+  workItems         WorkItem[]
+  pullRequests      PullRequest[]
+  builds            Build[]
+  deployments       Deployment[]
+  traceLinks        TraceLink[]
+  retrospectives    Retrospective[]
+  testCases         TestCase[]
+  testPlans         TestPlan[]
+  incidents         Incident[]
+  agentProfiles     AgentProfile[]
+  phaseAgentMappings PhaseAgentMapping[]
+  workflowExecutions WorkflowExecution[]
+
+  @@unique([organizationId, key])
+  @@map("projects")
+}
+
+// ============================================
+// INGESTION SERVICE
+// ============================================
+
+model Integration {
+  id         String   @id @default(uuid())
+  projectId  String   @map("project_id")
+  type       String   // JIRA, GITHUB, GITLAB, GITHUB_ACTIONS, GITLAB_CI, JENKINS, SONARQUBE, SAST, PAGERDUTY
+  status     String   @default("ACTIVE") // ACTIVE, DEGRADED, DISCONNECTED
+  lastSyncAt DateTime? @map("last_sync_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  project  Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  settings IntegrationSetting[]
+
+  @@map("integrations")
+}
+
+model IntegrationSetting {
+  id            String @id @default(uuid())
+  integrationId String @map("integration_id")
+  key           String // e.g., "base_url", "api_token_encrypted", "project_key", "webhook_secret"
+  value         String // encrypted for sensitive values
+
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@unique([integrationId, key])
+  @@map("integration_settings")
+}
+
+model WebhookEvent {
+  id         String   @id @default(uuid())
+  source     String   // GITHUB, JIRA, GITLAB, PAGERDUTY
+  eventType  String   @map("event_type")
+  externalId String?  @map("external_id")
+  payload    Json
+  status     String   @default("RECEIVED") // RECEIVED, PROCESSED, FAILED
+  error      String?
+  receivedAt DateTime @default(now()) @map("received_at")
+  processedAt DateTime? @map("processed_at")
+
+  @@index([source, externalId])
+  @@map("webhook_events")
+}
+
+model WorkItem {
+  id          String   @id @default(uuid())
+  projectId   String   @map("project_id")
+  externalId  String   @map("external_id") // e.g., Jira issue key "PROJ-123"
+  externalUrl String?  @map("external_url")
+  title       String
+  type        String   // EPIC, STORY, TASK, BUG, SUBTASK
+  status      String   // raw status from source
+  phase       String?  // mapped SDLC phase
+  assignee    String?
+  labels      String[] @default([])
+  priority    String?
+  parentId    String?  @map("parent_id")
+  sprintName  String?  @map("sprint_name")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, externalId])
+  @@index([projectId, phase])
+  @@index([projectId, type])
+  @@map("work_items")
+}
+
+model PullRequest {
+  id           String   @id @default(uuid())
+  projectId    String   @map("project_id")
+  externalId   String   @map("external_id") // GitHub PR number
+  externalUrl  String?  @map("external_url")
+  title        String
+  branchName   String   @map("branch_name")
+  status       String   // OPEN, MERGED, CLOSED
+  author       String?
+  linkedIssueKey String? @map("linked_issue_key") // extracted from branch name
+  mergedAt     DateTime? @map("merged_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  commits Commit[]
+
+  @@unique([projectId, externalId])
+  @@index([projectId, linkedIssueKey])
+  @@map("pull_requests")
+}
+
+model Commit {
+  id            String   @id @default(uuid())
+  pullRequestId String?  @map("pull_request_id")
+  sha           String
+  message       String
+  author        String?
+  committedAt   DateTime @map("committed_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  pullRequest PullRequest? @relation(fields: [pullRequestId], references: [id], onDelete: SetNull)
+
+  @@map("commits")
+}
+
+model Build {
+  id             String   @id @default(uuid())
+  projectId      String   @map("project_id")
+  externalId     String   @map("external_id") // CI run ID
+  externalUrl    String?  @map("external_url")
+  name           String?
+  status         String   // SUCCESS, FAILURE, IN_PROGRESS, CANCELLED
+  branch         String?
+  commitSha      String?  @map("commit_sha")
+  pullRequestId  String?  @map("pull_request_id")
+  duration       Int?     // seconds
+  startedAt      DateTime? @map("started_at")
+  finishedAt     DateTime? @map("finished_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  project        Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  qualityReports QualityReport[]
+  gateEvaluations GateEvaluation[]
+
+  @@unique([projectId, externalId])
+  @@map("builds")
+}
+
+model Deployment {
+  id            String   @id @default(uuid())
+  projectId     String   @map("project_id")
+  externalId    String?  @map("external_id")
+  environment   String   // production, staging, development
+  status        String   // SUCCESS, FAILURE, IN_PROGRESS, ROLLBACK
+  commitSha     String?  @map("commit_sha")
+  buildId       String?  @map("build_id")
+  deployedAt    DateTime @map("deployed_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, environment])
+  @@map("deployments")
+}
+
+model QualityReport {
+  id        String   @id @default(uuid())
+  buildId   String   @map("build_id")
+  source    String   // SONARQUBE, SAST, SCA
+  coverage  Float?
+  issues    Json?    // { critical: 0, major: 2, minor: 5 }
+  rawData   Json?    @map("raw_data")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  build Build @relation(fields: [buildId], references: [id], onDelete: Cascade)
+
+  @@map("quality_reports")
+}
+
+// ============================================
+// ANALYTICS SERVICE — Workflow & Gates
+// ============================================
+
+model WorkflowPhase {
+  id        String @id @default(uuid())
+  projectId String @map("project_id")
+  name      String
+  order     Int
+  color     String @default("#6B7280")
+
+  project         Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  statusMappings  StatusMapping[]
+  gateDefinitions GateDefinition[]
+
+  @@unique([projectId, order])
+  @@map("workflow_phases")
+}
+
+model StatusMapping {
+  id              String @id @default(uuid())
+  workflowPhaseId String @map("workflow_phase_id")
+  externalStatus  String @map("external_status") // e.g., Jira status name
+  source          String // JIRA, GITHUB, GITLAB
+
+  workflowPhase WorkflowPhase @relation(fields: [workflowPhaseId], references: [id], onDelete: Cascade)
+
+  @@unique([workflowPhaseId, externalStatus, source])
+  @@map("status_mappings")
+}
+
+model GateDefinition {
+  id              String @id @default(uuid())
+  projectId       String @map("project_id")
+  workflowPhaseId String @map("workflow_phase_id")
+  name            String
+  ruleType        String @map("rule_type") // MIN_COVERAGE, MAX_CRITICAL_ISSUES, CI_CHECK_PASS
+  ruleConfig      Json   @map("rule_config") // { threshold: 80 } or { checkName: "integration-tests" }
+  enforcement     String @default("ADVISORY") // ADVISORY, BLOCKING
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  project       Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workflowPhase WorkflowPhase   @relation(fields: [workflowPhaseId], references: [id], onDelete: Cascade)
+  evaluations   GateEvaluation[]
+
+  @@map("gate_definitions")
+}
+
+model GateEvaluation {
+  id               String   @id @default(uuid())
+  gateDefinitionId String   @map("gate_definition_id")
+  buildId          String?  @map("build_id")
+  status           String   // PASS, FAIL, PENDING
+  details          Json?    // evaluation details
+  evaluatedAt      DateTime @default(now()) @map("evaluated_at")
+
+  gateDefinition GateDefinition @relation(fields: [gateDefinitionId], references: [id], onDelete: Cascade)
+  build          Build?         @relation(fields: [buildId], references: [id], onDelete: SetNull)
+
+  @@map("gate_evaluations")
+}
+
+// ============================================
+// KNOWLEDGE SERVICE — Traceability
+// ============================================
+
+model TraceLink {
+  id            String   @id @default(uuid())
+  projectId     String   @map("project_id")
+  sourceType    String   @map("source_type") // EPIC, STORY, PR, BUILD, DEPLOYMENT, TEST_CASE, INCIDENT
+  sourceId      String   @map("source_id")
+  targetType    String   @map("target_type")
+  targetId      String   @map("target_id")
+  linkMechanism String   @map("link_mechanism") // AUTO_BRANCH_REGEX, AUTO_PR_EVENT, AUTO_DEPLOYMENT, MANUAL
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, sourceType, sourceId, targetType, targetId])
+  @@index([projectId, sourceType, sourceId])
+  @@index([projectId, targetType, targetId])
+  @@map("trace_links")
+}
+
+// ============================================
+// KNOWLEDGE SERVICE — Retrospectives
+// ============================================
+
+model Retrospective {
+  id           String   @id @default(uuid())
+  projectId    String   @map("project_id")
+  title        String
+  sprintName   String?  @map("sprint_name")
+  participants Json?    // array of names/emails
+  wentWell     String?  @map("went_well")
+  wentWrong    String?  @map("went_wrong")
+  actionItems  Json?    @map("action_items") // [{ text, owner, dueDate, completed }]
+  tags         String[] @default([])
+  incidentId   String?  @map("incident_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("retrospectives")
+}
+
+// ============================================
+// KNOWLEDGE SERVICE — Test Management (v3)
+// ============================================
+
+model TestCase {
+  id                    String   @id @default(uuid())
+  projectId             String   @map("project_id")
+  title                 String
+  description           String?
+  preconditions         String?
+  steps                 Json?    // [{ step, expected }]
+  expectedResult        String?  @map("expected_result")
+  priority              String   @default("MEDIUM") // CRITICAL, HIGH, MEDIUM, LOW
+  type                  String   @default("MANUAL") // UNIT, INTEGRATION, E2E, PERFORMANCE, SECURITY, MANUAL
+  linkedRequirementId   String?  @map("linked_requirement_id") // Jira issue key
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  project  Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  testRuns TestRun[]
+
+  @@map("test_cases")
+}
+
+model TestPlan {
+  id          String   @id @default(uuid())
+  projectId   String   @map("project_id")
+  name        String
+  description String?
+  sprintName  String?  @map("sprint_name")
+  status      String   @default("DRAFT") // DRAFT, ACTIVE, COMPLETED
+  testCaseIds String[] @map("test_case_ids") @default([])
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  testRuns TestRun[]
+
+  @@map("test_plans")
+}
+
+model TestRun {
+  id         String   @id @default(uuid())
+  testCaseId String   @map("test_case_id")
+  testPlanId String?  @map("test_plan_id")
+  result     String   // PASS, FAIL, BLOCKED, SKIP
+  executedBy String?  @map("executed_by")
+  notes      String?
+  duration   Int?     // seconds
+  executedAt DateTime @default(now()) @map("executed_at")
+
+  testCase TestCase  @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  testPlan TestPlan? @relation(fields: [testPlanId], references: [id], onDelete: SetNull)
+
+  @@map("test_runs")
+}
+
+// ============================================
+// KNOWLEDGE SERVICE — Incidents (v3)
+// ============================================
+
+model Incident {
+  id                String   @id @default(uuid())
+  projectId         String   @map("project_id")
+  title             String
+  severity          String   // P1, P2, P3, P4
+  status            String   @default("OPEN") // OPEN, INVESTIGATING, RESOLVED, CLOSED
+  startAt           DateTime? @map("start_at")
+  endAt             DateTime? @map("end_at")
+  affectedService   String?  @map("affected_service")
+  rootCauseCommitId String?  @map("root_cause_commit_id")
+  linkedDeploymentId String? @map("linked_deployment_id")
+  timeline          Json?    // [{ timestamp, description }]
+  rootCauseNotes    String?  @map("root_cause_notes")
+  externalId        String?  @map("external_id") // PagerDuty alert ID
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, severity])
+  @@index([projectId, status])
+  @@map("incidents")
+}
+
+// ============================================
+// KNOWLEDGE SERVICE — AI-DLC (v3)
+// ============================================
+
+model AiDlcSession {
+  id          String   @id @default(uuid())
+  projectId   String?  @map("project_id")
+  name        String
+  description String?
+  status      String   @default("ACTIVE") // ACTIVE, COMPLETED, CANCELLED
+  config      Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  artifacts      AiDlcArtifact[]
+  approvals      AiApproval[]
+  clarifications AiClarification[]
+
+  @@map("ai_dlc_sessions")
+}
+
+model AiDlcArtifact {
+  id         String   @id @default(uuid())
+  sessionId  String   @map("session_id")
+  type       String   // DOCUMENT, CODE, TEST_PLAN, DESIGN, ANALYSIS
+  name       String
+  contentRef String   @map("content_ref") // file path or blob reference
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  session AiDlcSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("ai_dlc_artifacts")
+}
+
+model AiApproval {
+  id          String   @id @default(uuid())
+  sessionId   String   @map("session_id")
+  artifactId  String?  @map("artifact_id")
+  status      String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  requestedBy String?  @map("requested_by")
+  reviewedBy  String?  @map("reviewed_by")
+  comments    String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  reviewedAt  DateTime? @map("reviewed_at")
+
+  session AiDlcSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("ai_approvals")
+}
+
+model AiClarification {
+  id        String   @id @default(uuid())
+  sessionId String   @map("session_id")
+  question  String
+  answer    String?
+  status    String   @default("PENDING") // PENDING, ANSWERED
+  askedAt   DateTime @default(now()) @map("asked_at")
+  answeredAt DateTime? @map("answered_at")
+
+  session AiDlcSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("ai_clarifications")
+}
+
+// ============================================
+// AUDIT & OBSERVABILITY
+// ============================================
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  action    String   // LOGIN, CREATE_PROJECT, UPDATE_INTEGRATION, GATE_OVERRIDE, etc.
+  resource  String?  // e.g., "project:uuid", "integration:uuid"
+  details   Json?
+  ipAddress String?  @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+
+// ============================================
+// AUTOMATION SERVICE — Agent Workflow (v4)
+// ============================================
+
+/// Defines an AI agent role (BA, Dev, QA, DevOps, Designer, SRE).
+/// Default profiles are seeded on project creation; custom ones can be added per-project.
+model AgentProfile {
+  id              String   @id @default(uuid())
+  projectId       String?  @map("project_id") // null = global default
+  name            String
+  role            String   // BA_AGENT | DEV_AGENT | QA_AGENT | DEVOPS_AGENT | DESIGNER_AGENT | SRE_AGENT
+  description     String?
+  skillSet        String[] @default([]) @map("skill_set")
+  supportedPhases String[] @default([]) @map("supported_phases") // SDLC phase names
+  isDefault       Boolean  @default(false) @map("is_default")
+  config          Json?    // arbitrary LLM/tool config
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  project         Project?            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  phaseMappings   PhaseAgentMapping[]
+  workflowTasks   WorkflowTask[]
+
+  @@map("agent_profiles")
+}
+
+/// Maps one SDLC workflow phase to an agent profile (many-to-many with priority).
+model PhaseAgentMapping {
+  id             String   @id @default(uuid())
+  projectId      String   @map("project_id")
+  phaseId        String   @map("phase_id")       // WorkflowPhase.id
+  agentProfileId String   @map("agent_profile_id")
+  priority       Int      @default(0)            // lower = higher priority when multiple agents mapped
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  agentProfile AgentProfile @relation(fields: [agentProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, phaseId, agentProfileId])
+  @@index([projectId, phaseId])
+  @@map("phase_agent_mappings")
+}
+
+/// A single end-to-end run of the agent workflow for a project.
+model WorkflowExecution {
+  id          String    @id @default(uuid())
+  projectId   String    @map("project_id")
+  status      String    @default("PENDING")
+  // PENDING | RUNNING | PAUSED | COMPLETED | CANCELLED | FAILED | BLOCKED
+  startedAt   DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
+  initiatedBy String?   @map("initiated_by") // userId
+  config      Json?     // concurrency limits, phase filters, etc.
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  project Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks   WorkflowTask[]
+
+  @@index([projectId, status])
+  @@map("workflow_executions")
+}
+
+/// One task inside a WorkflowExecution — maps to one SDLC phase + one agent.
+model WorkflowTask {
+  id                  String    @id @default(uuid())
+  workflowExecutionId String    @map("workflow_execution_id")
+  phaseId             String    @map("phase_id")   // WorkflowPhase.id (logical label)
+  phaseName           String    @map("phase_name") // denormalised for display
+  agentProfileId      String    @map("agent_profile_id")
+  status              String    @default("PENDING")
+  // PENDING | STARTING | RUNNING | DONE | FAILED | TIMED_OUT | SKIPPED
+  startedAt           DateTime? @map("started_at")
+  completedAt         DateTime? @map("completed_at")
+  durationMs          Int?      @map("duration_ms")
+  retryCount          Int       @default(0) @map("retry_count")
+  error               String?
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  execution      WorkflowExecution @relation(fields: [workflowExecutionId], references: [id], onDelete: Cascade)
+  agentProfile   AgentProfile      @relation(fields: [agentProfileId], references: [id])
+  instances      AgentInstance[]
+  artifacts      ArtifactOutput[]
+  dependencies   TaskDependency[]  @relation("TaskDependencies")
+  dependents     TaskDependency[]  @relation("DependentTasks")
+
+  @@index([workflowExecutionId, status])
+  @@map("workflow_tasks")
+}
+
+/// One live agent session spawned to execute a WorkflowTask.
+model AgentInstance {
+  id                   String    @id @default(uuid())
+  workflowTaskId       String    @map("workflow_task_id")
+  agentProfileId       String    @map("agent_profile_id")
+  sessionId            String?   @map("session_id")           // links to AiDlcSession.id
+  shouldTerminate      Boolean   @default(false) @map("should_terminate") // graceful shutdown signal
+  status               String    @default("PENDING")
+  // PENDING | STARTING | RUNNING | DONE | FAILED | TIMED_OUT
+  startedAt            DateTime? @map("started_at")
+  lastHeartbeat        DateTime? @map("last_heartbeat")
+  completedAt          DateTime? @map("completed_at")
+  durationMs           Int?      @map("duration_ms")          // actual elapsed ms
+  error                String?                                // last error message
+  heartbeatIntervalSec Int       @default(30) @map("heartbeat_interval_sec")
+  createdAt            DateTime  @default(now()) @map("created_at")
+
+  task     WorkflowTask   @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
+  artifacts ArtifactOutput[]
+
+  @@index([workflowTaskId])
+  @@index([status])
+  @@index([lastHeartbeat])
+  @@map("agent_instances")
+}
+
+/// Directed dependency edge: task must wait for dependsOnTask to be DONE.
+model TaskDependency {
+  id              String @id @default(uuid())
+  taskId          String @map("task_id")
+  dependsOnTaskId String @map("depends_on_task_id")
+
+  task        WorkflowTask @relation("TaskDependencies", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOn   WorkflowTask @relation("DependentTasks",   fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, dependsOnTaskId])
+  @@map("task_dependencies")
+}
+
+/// Deliverable produced by an agent (document, code, test plan, etc.).
+model ArtifactOutput {
+  id              String   @id @default(uuid())
+  workflowTaskId  String   @map("workflow_task_id")
+  agentInstanceId String?  @map("agent_instance_id")          // which instance produced it
+  aiDlcArtifactId String?  @map("ai_dlc_artifact_id")         // links to AiDlcArtifact.id
+  artifactType    String   @map("artifact_type")
+  // DOCUMENT | CODE | TEST_PLAN | DEPLOYMENT_SCRIPT | REVIEW_REPORT | CUSTOM
+  name            String
+  contentRef      String   @map("content_ref")                // blob URL / file path
+  metadata        Json?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  task          WorkflowTask   @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
+  agentInstance AgentInstance? @relation(fields: [agentInstanceId], references: [id], onDelete: SetNull)
+
+  @@index([workflowTaskId])
+  @@index([agentInstanceId])
+  @@map("artifact_outputs")
+}
