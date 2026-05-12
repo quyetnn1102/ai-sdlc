@@ -11,13 +11,15 @@
     "logout": "Logout"
   },
   "auth": {
-    "login": "Login",
-    "register": "Register",
-    "email": "Email",
+    "login": "Sign in",
+    "register": "Create account",
+    "email": "Email address",
     "password": "Password",
-    "name": "Full Name",
+    "name": "Full name",
     "loginTitle": "Welcome back",
+    "loginSubtitle": "Sign in to your account",
     "registerTitle": "Create an account",
+    "registerSubtitle": "Create your free account",
     "noAccount": "Don't have an account?",
     "hasAccount": "Already have an account?"
   },
@@ -32,7 +34,7 @@
   },
   "organizations": {
     "title": "Organizations",
-    "create": "Create Organization",
+    "create": "New Organization",
     "name": "Name",
     "key": "Key",
     "description": "Description",
@@ -41,9 +43,9 @@
   },
   "projects": {
     "title": "Projects",
-    "create": "Create Project",
-    "name": "Name",
-    "key": "Key",
+    "create": "New Project",
+    "name": "Project name",
+    "key": "Project key",
     "description": "Description",
     "timezone": "Timezone",
     "workflow": "Workflow",
@@ -52,6 +54,9 @@
     "metrics": "Metrics",
     "traceability": "Traceability",
     "retrospectives": "Retrospectives",
+    "tests": "Tests",
+    "testPlans": "Test Plans",
+    "incidents": "Incidents",
     "settings": "Settings"
   },
   "common": {
@@ -60,8 +65,11 @@
     "delete": "Delete",
     "edit": "Edit",
     "create": "Create",
-    "loading": "Loading...",
+    "loading": "Loading…",
     "error": "An error occurred",
-    "noData": "No data available"
+    "noData": "No data available",
+    "period7d": "7 days",
+    "period30d": "30 days",
+    "period90d": "90 days"
   }
 }

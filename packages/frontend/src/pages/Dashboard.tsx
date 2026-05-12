@@ -1,50 +1,86 @@
 import { useTranslation } from 'react-i18next';
-
-const doraMetrics = [
-  { key: 'deploymentFrequency', value: '4.2/wk', trend: '+12%', positive: true },
-  { key: 'leadTime', value: '2.3 days', trend: '-8%', positive: true },
-  { key: 'changeFailureRate', value: '3.1%', trend: '-2%', positive: true },
-  { key: 'mttr', value: '45 min', trend: '-15%', positive: true },
-];
+import { Link } from 'react-router-dom';
+import { useQuery } from '@/lib/hooks';
+import { organizationsService } from '@/services/organizations.service';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { MetricCard, Card, CardHeader } from '@/components/ui/Card';
+import { SkeletonCard } from '@/components/ui/Skeleton';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { Button } from '@/components/ui/Button';
 
 export function DashboardPage() {
   const { t } = useTranslation();
+  const { data: orgs, loading } = useQuery(() => organizationsService.list(), []);
+
+  const doraPlaceholders = [
+    { key: 'deploymentFrequency', label: t('dashboard.metrics.deploymentFrequency') },
+    { key: 'leadTime', label: t('dashboard.metrics.leadTime') },
+    { key: 'changeFailureRate', label: t('dashboard.metrics.changeFailureRate') },
+    { key: 'mttr', label: t('dashboard.metrics.mttr') },
+  ];
 
   return (
     <div>
-      <h1 className="text-lg font-semibold text-text-primary mb-6">
-        {t('dashboard.title')}
-      </h1>
+      <PageHeader title={t('dashboard.title')} />
 
-      {/* DORA Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {doraMetrics.map((metric) => (
-          <div
-            key={metric.key}
-            className="p-5 rounded-xl bg-bg-surface border border-border-subtle"
-          >
-            <p className="text-xs uppercase text-text-secondary tracking-wide mb-2">
-              {t(`dashboard.metrics.${metric.key}`)}
-            </p>
-            <p className="text-2xl font-bold text-text-primary tabular-nums">
-              {metric.value}
-            </p>
-            <p
-              className={`text-xs mt-1 ${
-                metric.positive ? 'text-status-success' : 'text-status-danger'
-              }`}
-            >
-              {metric.trend}
-            </p>
+      {/* DORA strip — populated per project on project detail page */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        {doraPlaceholders.map((m) =>
+          loading ? (
+            <SkeletonCard key={m.key} />
+          ) : (
+            <MetricCard key={m.key} label={m.label} value={null} />
+          ),
+        )}
+      </div>
+
+      {/* Organizations overview */}
+      <Card>
+        <CardHeader
+          title={t('organizations.title')}
+          action={
+            <Link to="/organizations">
+              <Button variant="secondary" size="sm">View all</Button>
+            </Link>
+          }
+        />
+        {loading ? (
+          <div className="space-y-2">
+            {[1, 2].map((i) => (
+              <div key={i} className="h-10 rounded bg-bg-elevated animate-pulse" />
+            ))}
           </div>
-        ))}
-      </div>
-
-      {/* Placeholder for recent activity */}
-      <div className="p-6 rounded-xl bg-bg-surface border border-border-subtle">
-        <h2 className="text-md font-medium text-text-primary mb-4">Recent Activity</h2>
-        <p className="text-sm text-text-secondary">{t('common.noData')}</p>
-      </div>
+        ) : !orgs?.length ? (
+          <EmptyState
+            title="No organizations yet"
+            description="Create an organization to start managing your SDLC."
+            action={
+              <Link to="/organizations">
+                <Button size="sm">Create Organization</Button>
+              </Link>
+            }
+          />
+        ) : (
+          <div className="space-y-2">
+            {orgs.slice(0, 5).map((org) => (
+              <Link
+                key={org.id}
+                to={`/organizations/${org.id}`}
+                className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-bg-hover transition-colors"
+              >
+                <div>
+                  <p className="text-sm font-medium text-text-primary">{org.name}</p>
+                  <p className="text-xs text-text-secondary">{org.key}</p>
+                </div>
+                <div className="flex items-center gap-4 text-xs text-text-secondary">
+                  <span>{org._count?.projects ?? 0} projects</span>
+                  <span>{org._count?.memberships ?? 0} members</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </Card>
     </div>
   );
 }
