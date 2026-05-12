@@ -1,0 +1,67 @@
+{
+  "app": {
+    "name": "SDLC Hub",
+    "description": "Software Development Life Cycle Hub"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "organizations": "Organizations",
+    "projects": "Projects",
+    "settings": "Settings",
+    "logout": "Logout"
+  },
+  "auth": {
+    "login": "Login",
+    "register": "Register",
+    "email": "Email",
+    "password": "Password",
+    "name": "Full Name",
+    "loginTitle": "Welcome back",
+    "registerTitle": "Create an account",
+    "noAccount": "Don't have an account?",
+    "hasAccount": "Already have an account?"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "metrics": {
+      "deploymentFrequency": "Deployment Frequency",
+      "leadTime": "Lead Time for Changes",
+      "changeFailureRate": "Change Failure Rate",
+      "mttr": "Mean Time to Recovery"
+    }
+  },
+  "organizations": {
+    "title": "Organizations",
+    "create": "Create Organization",
+    "name": "Name",
+    "key": "Key",
+    "description": "Description",
+    "members": "Members",
+    "projects": "Projects"
+  },
+  "projects": {
+    "title": "Projects",
+    "create": "Create Project",
+    "name": "Name",
+    "key": "Key",
+    "description": "Description",
+    "timezone": "Timezone",
+    "workflow": "Workflow",
+    "kanban": "Kanban",
+    "gates": "Quality Gates",
+    "metrics": "Metrics",
+    "traceability": "Traceability",
+    "retrospectives": "Retrospectives",
+    "settings": "Settings"
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "create": "Create",
+    "loading": "Loading...",
+    "error": "An error occurred",
+    "noData": "No data available"
+  }
+}
