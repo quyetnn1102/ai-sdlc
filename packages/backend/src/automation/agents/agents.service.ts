@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
 export interface CreateAgentProfileDto {
@@ -16,12 +21,31 @@ export interface CreateMappingDto {
   priority?: number;
 }
 
-const DEFAULT_PROFILES: Array<Omit<CreateAgentProfileDto, 'projectId'> & { role: string }> = [
+export interface ValidationIssue {
+  phaseId: string;
+  phaseName: string;
+  agentProfileId?: string;
+  issue: 'no_mapping' | 'phase_not_supported' | 'invalid_profile';
+  message: string;
+}
+
+export interface ValidationResult {
+  valid: boolean;
+  issues: ValidationIssue[];
+}
+
+const DEFAULT_PROFILES = [
   {
     name: 'BA Agent',
     role: 'BA_AGENT',
-    description: 'Business analyst — gathers requirements, writes user stories, creates acceptance criteria.',
-    skillSet: ['requirements-analysis', 'user-story-writing', 'acceptance-criteria', 'stakeholder-communication'],
+    description:
+      'Business analyst — gathers requirements, writes user stories, creates acceptance criteria.',
+    skillSet: [
+      'requirements-analysis',
+      'user-story-writing',
+      'acceptance-criteria',
+      'stakeholder-communication',
+    ],
     supportedPhases: ['Idea', 'Ready for Dev'],
   },
   {
@@ -34,8 +58,14 @@ const DEFAULT_PROFILES: Array<Omit<CreateAgentProfileDto, 'projectId'> & { role:
   {
     name: 'QA Agent',
     role: 'QA_AGENT',
-    description: 'Quality assurance — creates test cases, executes test plans, files defect reports.',
-    skillSet: ['test-case-design', 'test-execution', 'defect-reporting', 'regression-testing'],
+    description:
+      'Quality assurance — creates test cases, executes test plans, files defect reports.',
+    skillSet: [
+      'test-case-design',
+      'test-execution',
+      'defect-reporting',
+      'regression-testing',
+    ],
     supportedPhases: ['In Test'],
   },
   {
@@ -52,6 +82,7 @@ export class AgentsService {
   constructor(private readonly prisma: PrismaService) {}
 
   // ── Agent Profiles ────────────────────────────────────────────────────
+
   async seedDefaults(projectId: string) {
     const existing = await this.prisma.agentProfile.count({ where: { projectId } });
     if (existing > 0) return { seeded: 0 };
@@ -63,8 +94,8 @@ export class AgentsService {
           name: p.name,
           role: p.role,
           description: p.description,
-          skillSet: p.skillSet ?? [],
-          supportedPhases: p.supportedPhases ?? [],
+          skillSet: p.skillSet,
+          supportedPhases: p.supportedPhases,
           isDefault: true,
         },
       });
@@ -73,14 +104,22 @@ export class AgentsService {
   }
 
   async createProfile(projectId: string, dto: CreateAgentProfileDto) {
+    // Req 1.2 — must have at least one skill and one supported phase
+    if (!dto.skillSet?.length) {
+      throw new BadRequestException('Agent profile must have at least one skill');
+    }
+    if (!dto.supportedPhases?.length) {
+      throw new BadRequestException('Agent profile must support at least one SDLC phase');
+    }
+
     return this.prisma.agentProfile.create({
       data: {
         projectId,
         name: dto.name,
         role: dto.role,
         description: dto.description,
-        skillSet: dto.skillSet ?? [],
-        supportedPhases: dto.supportedPhases ?? [],
+        skillSet: dto.skillSet,
+        supportedPhases: dto.supportedPhases,
         config: dto.config ?? {},
       },
     });
@@ -105,6 +144,27 @@ export class AgentsService {
 
   async updateProfile(id: string, dto: Partial<CreateAgentProfileDto>) {
     await this.getProfile(id);
+
+    // Req 1.3 — reject update if a running execution references this profile
+    const runningUsage = await this.prisma.workflowTask.findFirst({
+      where: {
+        agentProfileId: id,
+        execution: { status: 'RUNNING' },
+      },
+    });
+    if (runningUsage) {
+      throw new ConflictException(
+        'Cannot update agent profile while it is referenced by a running workflow execution',
+      );
+    }
+
+    if (dto.skillSet !== undefined && dto.skillSet.length === 0) {
+      throw new BadRequestException('Agent profile must have at least one skill');
+    }
+    if (dto.supportedPhases !== undefined && dto.supportedPhases.length === 0) {
+      throw new BadRequestException('Agent profile must support at least one SDLC phase');
+    }
+
     return this.prisma.agentProfile.update({
       where: { id },
       data: {
@@ -119,15 +179,37 @@ export class AgentsService {
 
   async deleteProfile(id: string) {
     await this.getProfile(id);
+
+    // Req 1.5 — reject delete if referenced by any mapping
+    const mappingCount = await this.prisma.phaseAgentMapping.count({
+      where: { agentProfileId: id },
+    });
+    if (mappingCount > 0) {
+      throw new ConflictException(
+        `Cannot delete agent profile: it is referenced by ${mappingCount} phase-agent mapping(s). Remove the mappings first.`,
+      );
+    }
+
     return this.prisma.agentProfile.delete({ where: { id } });
   }
 
   // ── Phase-to-Agent Mappings ───────────────────────────────────────────
+
   async createMapping(projectId: string, dto: CreateMappingDto) {
-    // Validate that the profile supports this phase
     const profile = await this.getProfile(dto.agentProfileId);
     const phase = await this.prisma.workflowPhase.findUnique({ where: { id: dto.phaseId } });
     if (!phase) throw new NotFoundException('Workflow phase not found');
+
+    // Req 2.2 — validate the profile supports this phase
+    if (
+      profile.supportedPhases.length > 0 &&
+      !profile.supportedPhases.includes(phase.name)
+    ) {
+      throw new BadRequestException(
+        `Agent profile "${profile.name}" does not support phase "${phase.name}". ` +
+          `Supported phases: ${profile.supportedPhases.join(', ')}`,
+      );
+    }
 
     return this.prisma.phaseAgentMapping.create({
       data: {
@@ -160,9 +242,66 @@ export class AgentsService {
     return this.prisma.phaseAgentMapping.findMany({
       where: { projectId, phaseId },
       include: {
-        agentProfile: { select: { id: true, name: true, role: true, supportedPhases: true } },
+        agentProfile: {
+          select: { id: true, name: true, role: true, supportedPhases: true },
+        },
       },
       orderBy: { priority: 'asc' },
     });
+  }
+
+  // ── Req 2.3 / 2.4 — Validate all mappings for a project ──────────────
+
+  async validateMappings(projectId: string): Promise<ValidationResult> {
+    const [phases, mappings] = await Promise.all([
+      this.prisma.workflowPhase.findMany({
+        where: { projectId },
+        orderBy: { order: 'asc' },
+      }),
+      this.prisma.phaseAgentMapping.findMany({
+        where: { projectId },
+        include: {
+          agentProfile: {
+            select: { id: true, name: true, supportedPhases: true },
+          },
+        },
+      }),
+    ]);
+
+    const issues: ValidationIssue[] = [];
+
+    for (const phase of phases) {
+      const phaseMappings = mappings.filter((m) => m.phaseId === phase.id);
+
+      // Req 2.4 — warn if no mapping for a phase
+      if (phaseMappings.length === 0) {
+        issues.push({
+          phaseId: phase.id,
+          phaseName: phase.name,
+          issue: 'no_mapping',
+          message: `Phase "${phase.name}" has no agent mapping configured`,
+        });
+        continue;
+      }
+
+      // Req 2.2 — check each mapping's agent supports the phase
+      for (const mapping of phaseMappings) {
+        const { agentProfile } = mapping;
+        if (
+          agentProfile.supportedPhases.length > 0 &&
+          !agentProfile.supportedPhases.includes(phase.name)
+        ) {
+          issues.push({
+            phaseId: phase.id,
+            phaseName: phase.name,
+            agentProfileId: agentProfile.id,
+            issue: 'phase_not_supported',
+            message: `Agent "${agentProfile.name}" does not support phase "${phase.name}"`,
+          });
+        }
+      }
+    }
+
+    return { valid: issues.length === 0, issues };
   }
 }

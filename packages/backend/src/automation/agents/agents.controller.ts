@@ -1,10 +1,20 @@
 import {
-  Controller, Get, Post, Put, Delete, Patch,
-  Param, Body, UseGuards, Query,
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Param,
+  Body,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../platform/auth/guards/jwt-auth.guard';
-import { AgentsService, CreateAgentProfileDto, CreateMappingDto } from './agents.service';
+import {
+  AgentsService,
+  CreateAgentProfileDto,
+  CreateMappingDto,
+} from './agents.service';
 
 @ApiTags('Agent Profiles')
 @Controller('projects/:projectId/agents')
@@ -13,13 +23,14 @@ import { AgentsService, CreateAgentProfileDto, CreateMappingDto } from './agents
 export class AgentsController {
   constructor(private readonly agentsService: AgentsService) {}
 
-  // ── Agent Profiles ────────────────────────────────────────────────────
+  // ── Default seeding ───────────────────────────────────────────────────
   @Post('seed')
-  @ApiOperation({ summary: 'Seed default agent profiles for this project' })
+  @ApiOperation({ summary: 'Seed default agent profiles (BA, Dev, QA, DevOps) for this project' })
   seedDefaults(@Param('projectId') projectId: string) {
     return this.agentsService.seedDefaults(projectId);
   }
 
+  // ── Agent Profiles CRUD ───────────────────────────────────────────────
   @Post('profiles')
   @ApiOperation({ summary: 'Create a custom agent profile' })
   createProfile(
@@ -30,7 +41,7 @@ export class AgentsController {
   }
 
   @Get('profiles')
-  @ApiOperation({ summary: 'List agent profiles (project + global defaults)' })
+  @ApiOperation({ summary: 'List agent profiles (project-specific + global defaults)' })
   listProfiles(@Param('projectId') projectId: string) {
     return this.agentsService.listProfiles(projectId);
   }
@@ -42,13 +53,17 @@ export class AgentsController {
   }
 
   @Put('profiles/:id')
-  @ApiOperation({ summary: 'Update agent profile' })
+  @ApiOperation({
+    summary: 'Update agent profile (rejected if referenced by a running execution)',
+  })
   updateProfile(@Param('id') id: string, @Body() dto: Partial<CreateAgentProfileDto>) {
     return this.agentsService.updateProfile(id, dto);
   }
 
   @Delete('profiles/:id')
-  @ApiOperation({ summary: 'Delete agent profile' })
+  @ApiOperation({
+    summary: 'Delete agent profile (rejected if referenced by any phase mapping)',
+  })
   deleteProfile(@Param('id') id: string) {
     return this.agentsService.deleteProfile(id);
   }
@@ -70,7 +85,7 @@ export class AgentsController {
   }
 
   @Get('mappings/by-phase/:phaseId')
-  @ApiOperation({ summary: 'Get mappings for a specific phase' })
+  @ApiOperation({ summary: 'Get mappings for a specific phase (sorted by priority)' })
   getMappingsByPhase(
     @Param('projectId') projectId: string,
     @Param('phaseId') phaseId: string,
@@ -82,5 +97,15 @@ export class AgentsController {
   @ApiOperation({ summary: 'Remove a phase-agent mapping' })
   deleteMapping(@Param('id') id: string) {
     return this.agentsService.deleteMapping(id);
+  }
+
+  // ── Req 2.3 / 2.4 — Mapping validation ───────────────────────────────
+  @Post('mappings/validate')
+  @ApiOperation({
+    summary:
+      'Validate all phase-agent mappings: checks every phase has a mapping and each agent supports its phase',
+  })
+  validateMappings(@Param('projectId') projectId: string) {
+    return this.agentsService.validateMappings(projectId);
   }
 }

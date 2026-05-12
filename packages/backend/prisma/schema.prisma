@@ -577,7 +577,7 @@ model WorkflowExecution {
   id          String    @id @default(uuid())
   projectId   String    @map("project_id")
   status      String    @default("PENDING")
-  // PENDING | RUNNING | PAUSED | COMPLETED | CANCELLED | FAILED
+  // PENDING | RUNNING | PAUSED | COMPLETED | CANCELLED | FAILED | BLOCKED
   startedAt   DateTime? @map("started_at")
   completedAt DateTime? @map("completed_at")
   initiatedBy String?   @map("initiated_by") // userId
@@ -622,21 +622,27 @@ model WorkflowTask {
 
 /// One live agent session spawned to execute a WorkflowTask.
 model AgentInstance {
-  id             String    @id @default(uuid())
-  workflowTaskId String    @map("workflow_task_id")
-  agentProfileId String    @map("agent_profile_id")
-  sessionId      String?   @map("session_id") // links to AiDlcSession.id
-  status         String    @default("PENDING")
+  id                   String    @id @default(uuid())
+  workflowTaskId       String    @map("workflow_task_id")
+  agentProfileId       String    @map("agent_profile_id")
+  sessionId            String?   @map("session_id")           // links to AiDlcSession.id
+  shouldTerminate      Boolean   @default(false) @map("should_terminate") // graceful shutdown signal
+  status               String    @default("PENDING")
   // PENDING | STARTING | RUNNING | DONE | FAILED | TIMED_OUT
-  startedAt      DateTime? @map("started_at")
-  lastHeartbeat  DateTime? @map("last_heartbeat")
-  completedAt    DateTime? @map("completed_at")
-  heartbeatIntervalSec Int @default(30) @map("heartbeat_interval_sec")
-  createdAt      DateTime  @default(now()) @map("created_at")
+  startedAt            DateTime? @map("started_at")
+  lastHeartbeat        DateTime? @map("last_heartbeat")
+  completedAt          DateTime? @map("completed_at")
+  durationMs           Int?      @map("duration_ms")          // actual elapsed ms
+  error                String?                                // last error message
+  heartbeatIntervalSec Int       @default(30) @map("heartbeat_interval_sec")
+  createdAt            DateTime  @default(now()) @map("created_at")
 
-  task WorkflowTask @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
+  task     WorkflowTask   @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
+  artifacts ArtifactOutput[]
 
   @@index([workflowTaskId])
+  @@index([status])
+  @@index([lastHeartbeat])
   @@map("agent_instances")
 }
 
@@ -657,14 +663,19 @@ model TaskDependency {
 model ArtifactOutput {
   id              String   @id @default(uuid())
   workflowTaskId  String   @map("workflow_task_id")
-  aiDlcArtifactId String?  @map("ai_dlc_artifact_id") // links to AiDlcArtifact.id
-  artifactType    String   @map("artifact_type") // DOCUMENT | CODE | TEST_PLAN | DESIGN | ANALYSIS
+  agentInstanceId String?  @map("agent_instance_id")          // which instance produced it
+  aiDlcArtifactId String?  @map("ai_dlc_artifact_id")         // links to AiDlcArtifact.id
+  artifactType    String   @map("artifact_type")
+  // DOCUMENT | CODE | TEST_PLAN | DEPLOYMENT_SCRIPT | REVIEW_REPORT | CUSTOM
   name            String
-  contentRef      String   @map("content_ref")   // blob URL / file path
+  contentRef      String   @map("content_ref")                // blob URL / file path
   metadata        Json?
   createdAt       DateTime @default(now()) @map("created_at")
 
-  task WorkflowTask @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
+  task          WorkflowTask   @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
+  agentInstance AgentInstance? @relation(fields: [agentInstanceId], references: [id], onDelete: SetNull)
 
+  @@index([workflowTaskId])
+  @@index([agentInstanceId])
   @@map("artifact_outputs")
 }
