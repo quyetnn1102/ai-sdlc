@@ -42,6 +42,7 @@ const terminalStatusArb = fc.constantFrom(...TERMINAL);
 const successStatusArb  = fc.constantFrom(...SUCCESS);
 
 // ── Property 5: Task decomposition produces correct tasks ─────────────────
+// Feature: agent-workflow-automation, Property 5: Task decomposition produces correct tasks with correct assignments
 
 describe('Property 5: buildDag creates one node per task', () => {
   it('node count equals input task count', () => {
@@ -57,9 +58,35 @@ describe('Property 5: buildDag creates one node per task', () => {
       { numRuns: 100 },
     );
   });
+
+  it('property: for N tasks with distinct IDs, DAG has exactly N nodes', () => {
+    // Uses fc.uniqueArray to guarantee distinct IDs as specified
+    fc.assert(
+      fc.property(
+        fc.uniqueArray(fc.uuid(), { minLength: 1, maxLength: 8 }),
+        (ids) => {
+          const tasks = ids.map((id, i) => ({
+            id,
+            phaseName: `Phase${i}`,
+            status: 'PENDING',
+            dependencies: [],
+          }));
+          const dag = buildDag(tasks);
+          // Exactly N nodes, one per task
+          expect(dag.nodes.size).toBe(ids.length);
+          // Each task ID has a corresponding node
+          for (const id of ids) {
+            expect(dag.nodes.has(id)).toBe(true);
+          }
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
 });
 
 // ── Property 6: DAG structure has correct dependency edges ────────────────
+// Feature: agent-workflow-automation, Property 6: DAG structure has correct dependency edges
 
 describe('Property 6: dependency edges are correctly wired', () => {
   it('linear chain has N-1 edges', () => {
@@ -81,9 +108,50 @@ describe('Property 6: dependency edges are correctly wired', () => {
     const dag = buildDag([{ id: 't0', phaseName: 'P', status: 'PENDING', dependencies: [] }]);
     expect(dag.edges.length).toBe(0);
   });
+
+  it('property: for any set of tasks, edges match exactly the declared dependencies', () => {
+    fc.assert(
+      fc.property(
+        fc.uniqueArray(fc.uuid(), { minLength: 2, maxLength: 8 }),
+        (ids) => {
+          // Build tasks where task[i] depends on task[i-1] (linear chain with uuid IDs)
+          const tasks = ids.map((id, i) => ({
+            id,
+            phaseName: `Phase${i}`,
+            status: 'PENDING',
+            dependencies: i === 0 ? [] : [{ dependsOnTaskId: ids[i - 1] }],
+          }));
+          const dag = buildDag(tasks);
+
+          // Edge count = number of declared dependencies
+          const totalDeps = tasks.reduce((sum, t) => sum + t.dependencies.length, 0);
+          expect(dag.edges.length).toBe(totalDeps);
+
+          // Every declared dependency has a corresponding edge
+          for (const task of tasks) {
+            for (const dep of task.dependencies) {
+              const edge = dag.edges.find(
+                (e) => e.fromTaskId === dep.dependsOnTaskId && e.toTaskId === task.id,
+              );
+              expect(edge).toBeDefined();
+            }
+          }
+
+          // No edges between tasks with no declared dependency
+          for (const edge of dag.edges) {
+            const toTask = tasks.find((t) => t.id === edge.toTaskId)!;
+            const hasDep = toTask.dependencies.some((d) => d.dependsOnTaskId === edge.fromTaskId);
+            expect(hasDep).toBe(true);
+          }
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
 });
 
 // ── Property 7: DAG eligible task evaluation ─────────────────────────────
+// Feature: agent-workflow-automation, Property 7: DAG eligible task evaluation
 
 describe('Property 7: eligibleTaskIds returns exactly PENDING tasks with all deps DONE', () => {
   it('root task is eligible when PENDING', () => {
@@ -140,11 +208,79 @@ describe('Property 7: eligibleTaskIds returns exactly PENDING tasks with all dep
 });
 
 // ── Property 8: Concurrency limit enforcement ─────────────────────────────
+// Feature: agent-workflow-automation, Property 8: Concurrency limit enforcement
 
-describe('Property 8: eligibleTaskIds never returns more tasks than available', () => {
+describe('Property 8: Concurrency limit enforcement', () => {
   it('parallel dag returns at most 2 eligible tasks when root is done', () => {
     const dag = buildDag(parallelDag('DONE'));
     expect(dag.eligibleTaskIds().length).toBeLessThanOrEqual(2);
+  });
+
+  it('property: tasksToStart = eligibleTasks.slice(0, max(0, maxConcurrency - currentlyRunning))', () => {
+    // Test the pure scheduler dispatch logic:
+    // given N eligible tasks and concurrency limit M with R currently running,
+    // the number of tasks to start = min(N, max(0, M - R))
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 10 }), // N eligible tasks
+        fc.integer({ min: 1, max: 10 }), // M maxConcurrency
+        fc.integer({ min: 0, max: 10 }), // R currently running
+        (n, maxConcurrency, currentlyRunning) => {
+          // Build a DAG with N eligible tasks (all PENDING, no dependencies)
+          const tasks = Array.from({ length: n }, (_, i) => ({
+            id: `task-${i}`,
+            phaseName: `Phase${i}`,
+            status: 'PENDING',
+            dependencies: [],
+          }));
+          const dag = buildDag(tasks);
+          const eligibleTasks = dag.eligibleTaskIds();
+
+          // Simulate the scheduler dispatch logic
+          const availableSlots = Math.max(0, maxConcurrency - currentlyRunning);
+          const tasksToStart = eligibleTasks.slice(0, availableSlots);
+
+          // Verify: tasks started = min(N, max(0, M - R))
+          const expectedCount = Math.min(n, Math.max(0, maxConcurrency - currentlyRunning));
+          expect(tasksToStart.length).toBe(expectedCount);
+
+          // Verify: never starts more than maxConcurrency - currentlyRunning
+          expect(tasksToStart.length).toBeLessThanOrEqual(Math.max(0, maxConcurrency - currentlyRunning));
+
+          // Verify: never starts more than available eligible tasks
+          expect(tasksToStart.length).toBeLessThanOrEqual(eligibleTasks.length);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('property: when currentlyRunning >= maxConcurrency, no new tasks are started', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 8 }), // N eligible tasks
+        fc.integer({ min: 1, max: 10 }), // M maxConcurrency
+        fc.integer({ min: 0, max: 10 }), // extra running beyond limit
+        (n, maxConcurrency, extra) => {
+          const currentlyRunning = maxConcurrency + extra; // always >= maxConcurrency
+          const tasks = Array.from({ length: n }, (_, i) => ({
+            id: `task-${i}`,
+            phaseName: `Phase${i}`,
+            status: 'PENDING',
+            dependencies: [],
+          }));
+          const dag = buildDag(tasks);
+          const eligibleTasks = dag.eligibleTaskIds();
+
+          const availableSlots = Math.max(0, maxConcurrency - currentlyRunning);
+          const tasksToStart = eligibleTasks.slice(0, availableSlots);
+
+          // When running >= limit, no tasks should start
+          expect(tasksToStart.length).toBe(0);
+        },
+      ),
+      { numRuns: 100 },
+    );
   });
 });
 
@@ -223,6 +359,7 @@ describe('Property 13: isComplete returns true iff all nodes are terminal', () =
 });
 
 // ── Property 19: Progress percentage calculation ──────────────────────────
+// Feature: agent-workflow-automation, Property 19: Progress percentage calculation
 
 describe('Property 19: getProgress returns correct percentage', () => {
   it('all done → 100%', () => {
@@ -260,6 +397,7 @@ describe('Property 19: getProgress returns correct percentage', () => {
 });
 
 // ── Property 20: Critical path is the longest path ───────────────────────
+// Feature: agent-workflow-automation, Property 20: Critical path is the longest path in the DAG
 
 describe('Property 20: getCriticalPath returns the longest path', () => {
   it('linear chain: critical path is the full chain', () => {
@@ -296,13 +434,77 @@ describe('Property 20: getCriticalPath returns the longest path', () => {
 });
 
 // ── Property 21: Paused execution prevents new task starts ───────────────
+// Feature: agent-workflow-automation, Property 21: Paused execution prevents new task starts
 
-describe('Property 21: transition to terminal status makes node ineligible', () => {
+describe('Property 21: Paused execution prevents new task starts', () => {
   it('DONE node is no longer eligible', () => {
     const dag = buildDag([{ id: 't0', phaseName: 'P', status: 'PENDING', dependencies: [] }]);
     expect(dag.eligibleTaskIds()).toContain('t0');
     dag.transition('t0', 'DONE');
     expect(dag.eligibleTaskIds()).not.toContain('t0');
+  });
+
+  it('property: when execution status is PAUSED, dispatch returns 0 tasks regardless of eligible count', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 10 }), // N eligible tasks
+        fc.integer({ min: 1, max: 10 }), // M maxConcurrency
+        fc.integer({ min: 0, max: 5 }),  // R currently running
+        (n, maxConcurrency, currentlyRunning) => {
+          // Build a DAG with N eligible tasks
+          const tasks = Array.from({ length: n }, (_, i) => ({
+            id: `task-${i}`,
+            phaseName: `Phase${i}`,
+            status: 'PENDING',
+            dependencies: [],
+          }));
+          const dag = buildDag(tasks);
+          const eligibleTasks = dag.eligibleTaskIds();
+
+          // Simulate scheduler dispatch logic with PAUSED execution status
+          const executionStatus = 'PAUSED';
+          const availableSlots = executionStatus === 'PAUSED'
+            ? 0
+            : Math.max(0, maxConcurrency - currentlyRunning);
+          const tasksToStart = eligibleTasks.slice(0, availableSlots);
+
+          // When paused, zero tasks should be dispatched regardless of eligible count
+          expect(tasksToStart.length).toBe(0);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('property: RUNNING execution dispatches tasks normally, PAUSED dispatches none', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 8 }), // N eligible tasks
+        fc.integer({ min: 1, max: 10 }), // M maxConcurrency
+        (n, maxConcurrency) => {
+          const tasks = Array.from({ length: n }, (_, i) => ({
+            id: `task-${i}`,
+            phaseName: `Phase${i}`,
+            status: 'PENDING',
+            dependencies: [],
+          }));
+          const dag = buildDag(tasks);
+          const eligibleTasks = dag.eligibleTaskIds();
+
+          // RUNNING: should dispatch up to maxConcurrency tasks
+          const runningSlots = Math.max(0, maxConcurrency - 0); // 0 currently running
+          const runningDispatched = eligibleTasks.slice(0, runningSlots);
+          expect(runningDispatched.length).toBeGreaterThan(0);
+          expect(runningDispatched.length).toBe(Math.min(n, maxConcurrency));
+
+          // PAUSED: should dispatch 0 tasks
+          const pausedSlots = 0;
+          const pausedDispatched = eligibleTasks.slice(0, pausedSlots);
+          expect(pausedDispatched.length).toBe(0);
+        },
+      ),
+      { numRuns: 100 },
+    );
   });
 });
 

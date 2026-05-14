@@ -26,6 +26,7 @@ model User {
 
   memberships Membership[]
   auditLogs   AuditLog[]
+  workflowExecutions WorkflowExecution[]
 
   @@map("users")
 }
@@ -38,8 +39,9 @@ model Organization {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  memberships Membership[]
-  projects    Project[]
+  memberships        Membership[]
+  projects           Project[]
+  workspaceTemplates WorkspaceTemplate[]
 
   @@map("organizations")
 }
@@ -84,6 +86,11 @@ model Project {
   agentProfiles     AgentProfile[]
   phaseAgentMappings PhaseAgentMapping[]
   workflowExecutions WorkflowExecution[]
+  skills            Skill[]
+  pipelines         Pipeline[]
+  epicRuns          EpicRun[]
+  workspaceConfig   WorkspaceConfig?
+  tokenUsageLogs    TokenUsageLog[]
 
   @@unique([organizationId, key])
   @@map("projects")
@@ -152,7 +159,8 @@ model WorkItem {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  epicRuns EpicRun[]
 
   @@unique([projectId, externalId])
   @@index([projectId, phase])
@@ -459,6 +467,7 @@ model AiDlcSession {
   artifacts      AiDlcArtifact[]
   approvals      AiApproval[]
   clarifications AiClarification[]
+  agentInstances AgentInstance[]
 
   @@map("ai_dlc_sessions")
 }
@@ -472,7 +481,8 @@ model AiDlcArtifact {
   metadata   Json?
   createdAt  DateTime @default(now()) @map("created_at")
 
-  session AiDlcSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  session         AiDlcSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  artifactOutputs ArtifactOutput[]
 
   @@map("ai_dlc_artifacts")
 }
@@ -533,149 +543,436 @@ model AuditLog {
 // AUTOMATION SERVICE — Agent Workflow (v4)
 // ============================================
 
-/// Defines an AI agent role (BA, Dev, QA, DevOps, Designer, SRE).
-/// Default profiles are seeded on project creation; custom ones can be added per-project.
-model AgentProfile {
-  id              String   @id @default(uuid())
-  projectId       String?  @map("project_id") // null = global default
-  name            String
-  role            String   // BA_AGENT | DEV_AGENT | QA_AGENT | DEVOPS_AGENT | DESIGNER_AGENT | SRE_AGENT
-  description     String?
-  skillSet        String[] @default([]) @map("skill_set")
-  supportedPhases String[] @default([]) @map("supported_phases") // SDLC phase names
-  isDefault       Boolean  @default(false) @map("is_default")
-  config          Json?    // arbitrary LLM/tool config
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-
-  project         Project?            @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  phaseMappings   PhaseAgentMapping[]
-  workflowTasks   WorkflowTask[]
-
-  @@map("agent_profiles")
+enum AgentRole {
+  BA
+  Dev
+  QA
+  DevOps
+  Designer
+  SRE
 }
 
-/// Maps one SDLC workflow phase to an agent profile (many-to-many with priority).
+model AgentProfile {
+  id              String    @id @default(uuid())
+  projectId       String?   @map("project_id")
+  name            String
+  role            AgentRole
+  description     String
+  skillSet        String[]  @map("skill_set")
+  supportedPhases String[]  @map("supported_phases")
+  isDefault       Boolean   @default(false) @map("is_default")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  project            Project?            @relation(fields: [projectId], references: [id])
+  phaseAgentMappings PhaseAgentMapping[]
+  workflowTasks      WorkflowTask[]
+  agentInstances     AgentInstance[]
+  agentSkills        AgentSkill[]
+  pipelineSteps      PipelineStep[]
+  epicRunSteps       EpicRunStep[]
+  tokenUsageLogs     TokenUsageLog[]
+
+  @@map("agent_profiles")
+  @@index([projectId])
+  @@index([role])
+  @@index([isDefault])
+}
+
 model PhaseAgentMapping {
   id             String   @id @default(uuid())
   projectId      String   @map("project_id")
-  phaseId        String   @map("phase_id")       // WorkflowPhase.id
+  phaseId        String   @map("phase_id")
   agentProfileId String   @map("agent_profile_id")
-  priority       Int      @default(0)            // lower = higher priority when multiple agents mapped
+  priority       Int      @default(0)
   createdAt      DateTime @default(now()) @map("created_at")
 
-  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  agentProfile AgentProfile @relation(fields: [agentProfileId], references: [id], onDelete: Cascade)
+  project      Project      @relation(fields: [projectId], references: [id])
+  agentProfile AgentProfile @relation(fields: [agentProfileId], references: [id])
 
+  @@map("phase_agent_mappings")
   @@unique([projectId, phaseId, agentProfileId])
   @@index([projectId, phaseId])
-  @@map("phase_agent_mappings")
 }
 
-/// A single end-to-end run of the agent workflow for a project.
-model WorkflowExecution {
-  id          String    @id @default(uuid())
-  projectId   String    @map("project_id")
-  status      String    @default("PENDING")
-  // PENDING | RUNNING | PAUSED | COMPLETED | CANCELLED | FAILED | BLOCKED
-  startedAt   DateTime? @map("started_at")
-  completedAt DateTime? @map("completed_at")
-  initiatedBy String?   @map("initiated_by") // userId
-  config      Json?     // concurrency limits, phase filters, etc.
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+enum WorkflowExecutionStatus {
+  pending
+  running
+  paused
+  completed
+  cancelled
+  blocked
+}
 
-  project Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+model WorkflowExecution {
+  id          String                  @id @default(uuid())
+  projectId   String                  @map("project_id")
+  status      WorkflowExecutionStatus @default(pending)
+  config      Json
+  startedAt   DateTime?               @map("started_at")
+  completedAt DateTime?               @map("completed_at")
+  initiatedBy String                  @map("initiated_by")
+  createdAt   DateTime                @default(now()) @map("created_at")
+  updatedAt   DateTime                @updatedAt @map("updated_at")
+
+  project Project        @relation(fields: [projectId], references: [id])
+  user    User           @relation(fields: [initiatedBy], references: [id])
   tasks   WorkflowTask[]
 
-  @@index([projectId, status])
   @@map("workflow_executions")
+  @@index([projectId, status])
+  @@index([initiatedBy])
 }
 
-/// One task inside a WorkflowExecution — maps to one SDLC phase + one agent.
+enum TaskStatus {
+  pending
+  assigned
+  running
+  done
+  failed
+  cancelled
+  timed_out
+}
+
 model WorkflowTask {
-  id                  String    @id @default(uuid())
-  workflowExecutionId String    @map("workflow_execution_id")
-  phaseId             String    @map("phase_id")   // WorkflowPhase.id (logical label)
-  phaseName           String    @map("phase_name") // denormalised for display
-  agentProfileId      String    @map("agent_profile_id")
-  status              String    @default("PENDING")
-  // PENDING | STARTING | RUNNING | DONE | FAILED | TIMED_OUT | SKIPPED
-  startedAt           DateTime? @map("started_at")
-  completedAt         DateTime? @map("completed_at")
-  durationMs          Int?      @map("duration_ms")
-  retryCount          Int       @default(0) @map("retry_count")
+  id                  String     @id @default(uuid())
+  workflowExecutionId String     @map("workflow_execution_id")
+  phaseId             String     @map("phase_id")
+  agentProfileId      String     @map("agent_profile_id")
+  status              TaskStatus @default(pending)
+  startedAt           DateTime?  @map("started_at")
+  completedAt         DateTime?  @map("completed_at")
   error               String?
-  createdAt           DateTime  @default(now()) @map("created_at")
-  updatedAt           DateTime  @updatedAt @map("updated_at")
+  retryCount          Int        @default(0) @map("retry_count")
+  createdAt           DateTime   @default(now()) @map("created_at")
+  updatedAt           DateTime   @updatedAt @map("updated_at")
 
-  execution      WorkflowExecution @relation(fields: [workflowExecutionId], references: [id], onDelete: Cascade)
-  agentProfile   AgentProfile      @relation(fields: [agentProfileId], references: [id])
-  instances      AgentInstance[]
-  artifacts      ArtifactOutput[]
-  dependencies   TaskDependency[]  @relation("TaskDependencies")
-  dependents     TaskDependency[]  @relation("DependentTasks")
+  workflowExecution WorkflowExecution @relation(fields: [workflowExecutionId], references: [id], onDelete: Cascade)
+  agentProfile      AgentProfile      @relation(fields: [agentProfileId], references: [id])
+  agentInstances    AgentInstance[]
+  artifactOutputs   ArtifactOutput[]
+  dependsOn         TaskDependency[]  @relation("dependent_task")
+  dependedOnBy      TaskDependency[]  @relation("prerequisite_task")
 
-  @@index([workflowExecutionId, status])
   @@map("workflow_tasks")
+  @@index([workflowExecutionId, status])
+  @@index([agentProfileId])
 }
 
-/// One live agent session spawned to execute a WorkflowTask.
-model AgentInstance {
-  id                   String    @id @default(uuid())
-  workflowTaskId       String    @map("workflow_task_id")
-  agentProfileId       String    @map("agent_profile_id")
-  sessionId            String?   @map("session_id")           // links to AiDlcSession.id
-  shouldTerminate      Boolean   @default(false) @map("should_terminate") // graceful shutdown signal
-  status               String    @default("PENDING")
-  // PENDING | STARTING | RUNNING | DONE | FAILED | TIMED_OUT
-  startedAt            DateTime? @map("started_at")
-  lastHeartbeat        DateTime? @map("last_heartbeat")
-  completedAt          DateTime? @map("completed_at")
-  durationMs           Int?      @map("duration_ms")          // actual elapsed ms
-  error                String?                                // last error message
-  heartbeatIntervalSec Int       @default(30) @map("heartbeat_interval_sec")
-  createdAt            DateTime  @default(now()) @map("created_at")
-
-  task     WorkflowTask   @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
-  artifacts ArtifactOutput[]
-
-  @@index([workflowTaskId])
-  @@index([status])
-  @@index([lastHeartbeat])
-  @@map("agent_instances")
-}
-
-/// Directed dependency edge: task must wait for dependsOnTask to be DONE.
 model TaskDependency {
   id              String @id @default(uuid())
   taskId          String @map("task_id")
   dependsOnTaskId String @map("depends_on_task_id")
 
-  task        WorkflowTask @relation("TaskDependencies", fields: [taskId], references: [id], onDelete: Cascade)
-  dependsOn   WorkflowTask @relation("DependentTasks",   fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+  task          WorkflowTask @relation("dependent_task", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOnTask WorkflowTask @relation("prerequisite_task", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
 
-  @@unique([taskId, dependsOnTaskId])
   @@map("task_dependencies")
+  @@unique([taskId, dependsOnTaskId])
+  @@index([taskId])
+  @@index([dependsOnTaskId])
 }
 
-/// Deliverable produced by an agent (document, code, test plan, etc.).
+enum AgentInstanceStatus {
+  pending
+  starting
+  running
+  done
+  failed
+  timed_out
+}
+
+model AgentInstance {
+  id             String              @id @default(uuid())
+  workflowTaskId String              @map("workflow_task_id")
+  agentProfileId String              @map("agent_profile_id")
+  sessionId      String?             @map("session_id")
+  status         AgentInstanceStatus @default(pending)
+  startedAt      DateTime?           @map("started_at")
+  lastHeartbeat  DateTime?           @map("last_heartbeat")
+  completedAt    DateTime?           @map("completed_at")
+  durationMs     Int?                @map("duration_ms")
+  error          String?
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+
+  workflowTask    WorkflowTask     @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
+  agentProfile    AgentProfile     @relation(fields: [agentProfileId], references: [id])
+  session         AiDlcSession?    @relation(fields: [sessionId], references: [id])
+  artifactOutputs ArtifactOutput[]
+
+  @@map("agent_instances")
+  @@index([workflowTaskId])
+  @@index([status])
+  @@index([lastHeartbeat])
+}
+
+enum ArtifactType {
+  document
+  code
+  test_plan
+  deployment_script
+  review_report
+  custom
+}
+
 model ArtifactOutput {
-  id              String   @id @default(uuid())
-  workflowTaskId  String   @map("workflow_task_id")
-  agentInstanceId String?  @map("agent_instance_id")          // which instance produced it
-  aiDlcArtifactId String?  @map("ai_dlc_artifact_id")         // links to AiDlcArtifact.id
-  artifactType    String   @map("artifact_type")
-  // DOCUMENT | CODE | TEST_PLAN | DEPLOYMENT_SCRIPT | REVIEW_REPORT | CUSTOM
+  id              String       @id @default(uuid())
+  workflowTaskId  String       @map("workflow_task_id")
+  agentInstanceId String       @map("agent_instance_id")
+  artifactType    ArtifactType @map("artifact_type")
   name            String
-  contentRef      String   @map("content_ref")                // blob URL / file path
+  contentRef      String       @map("content_ref")
+  aiDlcArtifactId String?      @map("ai_dlc_artifact_id")
   metadata        Json?
-  createdAt       DateTime @default(now()) @map("created_at")
+  createdAt       DateTime     @default(now()) @map("created_at")
 
-  task          WorkflowTask   @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
-  agentInstance AgentInstance? @relation(fields: [agentInstanceId], references: [id], onDelete: SetNull)
+  workflowTask  WorkflowTask   @relation(fields: [workflowTaskId], references: [id], onDelete: Cascade)
+  agentInstance AgentInstance  @relation(fields: [agentInstanceId], references: [id])
+  aiDlcArtifact AiDlcArtifact? @relation(fields: [aiDlcArtifactId], references: [id])
 
+  @@map("artifact_outputs")
   @@index([workflowTaskId])
   @@index([agentInstanceId])
-  @@map("artifact_outputs")
+  @@index([aiDlcArtifactId])
+}
+
+// ============================================
+// WORKSPACE — Skills
+// ============================================
+
+model Skill {
+  id           String   @id @default(uuid())
+  projectId    String   @map("project_id")
+  name         String
+  description  String?
+  content      String   // Full markdown content
+  inputs       Json?    // [{ name, type, description }]
+  outputs      Json?    // [{ name, type, description }]
+  metadata     Json?    // Additional structured metadata
+  displayOrder Int      @default(0) @map("display_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  agentSkills AgentSkill[]
+
+  @@unique([projectId, name])
+  @@map("skills")
+}
+
+model AgentSkill {
+  id             String @id @default(uuid())
+  agentProfileId String @map("agent_profile_id")
+  skillId        String @map("skill_id")
+
+  agentProfile AgentProfile @relation(fields: [agentProfileId], references: [id], onDelete: Cascade)
+  skill        Skill        @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([agentProfileId, skillId])
+  @@map("agent_skills")
+}
+
+// ============================================
+// WORKSPACE — Pipelines
+// ============================================
+
+model Pipeline {
+  id           String   @id @default(uuid())
+  projectId    String   @map("project_id")
+  name         String
+  description  String?
+  displayOrder Int      @default(0) @map("display_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  project  Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  steps    PipelineStep[]
+  epicRuns EpicRun[]
+
+  @@unique([projectId, name])
+  @@map("pipelines")
+}
+
+model PipelineStep {
+  id             String @id @default(uuid())
+  pipelineId     String @map("pipeline_id")
+  agentProfileId String @map("agent_profile_id")
+  stepOrder      Int    @map("step_order")
+  onFailure      String @default("stop") @map("on_failure") // "stop" | "continue"
+
+  pipeline     Pipeline     @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  agentProfile AgentProfile @relation(fields: [agentProfileId], references: [id])
+
+  @@unique([pipelineId, stepOrder])
+  @@map("pipeline_steps")
+}
+
+// ============================================
+// WORKSPACE — Epic Runs
+// ============================================
+
+enum EpicRunStatus {
+  pending
+  running
+  paused
+  completed
+  failed
+  cancelled
+}
+
+enum EpicRunStepStatus {
+  pending
+  running
+  completed
+  approved
+  rejected
+  failed
+  skipped
+}
+
+model EpicRun {
+  id          String        @id @default(uuid())
+  projectId   String        @map("project_id")
+  pipelineId  String        @map("pipeline_id")
+  workItemId  String        @map("work_item_id")
+  status      EpicRunStatus @default(pending)
+  currentStep Int           @default(0) @map("current_step")
+  startedAt   DateTime?     @map("started_at")
+  completedAt DateTime?     @map("completed_at")
+  initiatedBy String        @map("initiated_by")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  project        Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  pipeline       Pipeline      @relation(fields: [pipelineId], references: [id])
+  workItem       WorkItem      @relation(fields: [workItemId], references: [id])
+  steps          EpicRunStep[]
+  tokenUsageLogs TokenUsageLog[]
+
+  @@index([projectId, status])
+  @@map("epic_runs")
+}
+
+model EpicRunStep {
+  id             String            @id @default(uuid())
+  epicRunId      String            @map("epic_run_id")
+  pipelineStepId String            @map("pipeline_step_id")
+  agentProfileId String            @map("agent_profile_id")
+  stepOrder      Int               @map("step_order")
+  status         EpicRunStepStatus @default(pending)
+  output         String?           // Agent output/artifact reference
+  feedback       String?           // Rejection feedback
+  context        String?           // Additional context for rerun
+  startedAt      DateTime?         @map("started_at")
+  completedAt    DateTime?         @map("completed_at")
+  approvedAt     DateTime?         @map("approved_at")
+  rejectedAt     DateTime?         @map("rejected_at")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  epicRun        EpicRun        @relation(fields: [epicRunId], references: [id], onDelete: Cascade)
+  agentProfile   AgentProfile   @relation(fields: [agentProfileId], references: [id])
+  tokenUsageLogs TokenUsageLog[]
+
+  @@unique([epicRunId, stepOrder])
+  @@index([epicRunId, status])
+  @@map("epic_run_steps")
+}
+
+model EpicRunHistory {
+  id        String   @id @default(uuid())
+  epicRunId String   @map("epic_run_id")
+  stepOrder Int      @map("step_order")
+  action    String   // "started" | "completed" | "approved" | "rejected" | "rerun" | "failed" | "skipped"
+  actor     String?  // User who performed the action
+  details   Json?    // Additional context (feedback, error, etc.)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([epicRunId])
+  @@map("epic_run_history")
+}
+
+// ============================================
+// WORKSPACE — Configuration & Templates
+// ============================================
+
+model WorkspaceConfig {
+  id            String   @id @default(uuid())
+  projectId     String   @unique @map("project_id")
+  slashCommands Json?    @map("slash_commands") // [{ name, description, action }]
+  metadata      Json?    // Additional workspace metadata
+  yamlContent   String?  @map("yaml_content") // Cached generated YAML
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("workspace_configs")
+}
+
+model WorkspaceTemplate {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  description    String?
+  isBuiltIn      Boolean  @default(false) @map("is_built_in")
+  content        Json     // Full workspace snapshot: { agents, skills, pipelines, slashCommands }
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, name])
+  @@map("workspace_templates")
+}
+
+// ============================================
+// WORKSPACE — Walkthrough State
+// ============================================
+
+model WalkthroughState {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  projectId   String    @map("project_id")
+  currentStep Int       @default(0) @map("current_step")
+  completed   Boolean   @default(false)
+  dismissedAt DateTime? @map("dismissed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@unique([userId, projectId])
+  @@map("walkthrough_states")
+}
+
+// ============================================
+// WORKSPACE — Token Usage Tracking
+// ============================================
+
+model TokenUsageLog {
+  id             String   @id @default(uuid())
+  projectId      String   @map("project_id")
+  epicRunId      String   @map("epic_run_id")
+  epicRunStepId  String   @map("epic_run_step_id")
+  agentProfileId String   @map("agent_profile_id")
+  model          String
+  provider       String
+  inputTokens    Int      @map("input_tokens")
+  outputTokens   Int      @map("output_tokens")
+  estimatedCost  Float    @map("estimated_cost")
+  promptHash     String?  @map("prompt_hash")
+  metadata       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  epicRun      EpicRun      @relation(fields: [epicRunId], references: [id], onDelete: Cascade)
+  epicRunStep  EpicRunStep  @relation(fields: [epicRunStepId], references: [id], onDelete: Cascade)
+  agentProfile AgentProfile @relation(fields: [agentProfileId], references: [id])
+
+  @@index([projectId, createdAt])
+  @@index([epicRunId])
+  @@index([epicRunStepId])
+  @@index([agentProfileId])
+  @@index([promptHash])
+  @@map("token_usage_logs")
 }

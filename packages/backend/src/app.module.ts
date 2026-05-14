@@ -32,6 +32,9 @@ import { RetrospectivesModule } from './knowledge/retrospectives/retrospectives.
 import { TestManagementModule } from './knowledge/test-management/test-management.module';
 import { IncidentsModule } from './knowledge/incidents/incidents.module';
 import { AutomationModule } from './automation/automation.module';
+import { WorkspaceModule } from './workspace/workspace.module';
+import { TerminalModule } from './terminal/terminal.module';
+import { RealtimeModule } from './realtime/realtime.module';
 
 @Module({
   imports: [
@@ -81,6 +84,11 @@ import { AutomationModule } from './automation/automation.module';
 
     // ── Automation (v4) ──
     AutomationModule,
+
+    // ── Workspace Builder ──
+    WorkspaceModule,
+    TerminalModule,
+    RealtimeModule,
   ],
   providers: [
     // Apply rate limiting globally — individual endpoints can override with @Throttle()

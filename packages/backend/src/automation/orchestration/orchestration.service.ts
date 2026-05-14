@@ -50,7 +50,7 @@ export interface StartExecutionDto {
 export interface CompleteTaskDto {
   taskId: string;
   agentInstanceId: string;
-  status: 'DONE' | 'FAILED';
+  status: 'done' | 'failed';
   error?: string;
   durationMs?: number;
   artifacts?: Array<{
@@ -125,7 +125,7 @@ export class OrchestrationService {
     const execution = await this.prisma.workflowExecution.create({
       data: {
         projectId,
-        status: 'RUNNING',
+        status: 'running' as any,
         startedAt: new Date(),
         initiatedBy: initiatedBy ?? null,
         config: config as object,
@@ -150,7 +150,7 @@ export class OrchestrationService {
             phaseId: phase.id,
             phaseName: phase.name,
             agentProfileId: mapping.agentProfileId,
-            status: 'PENDING',
+            status: 'pending' as any,
           },
         });
         createdTasks.push({ id: task.id, phaseId: phase.id, order: phase.order });
@@ -161,7 +161,7 @@ export class OrchestrationService {
     if (createdTasks.length === 0) {
       await this.prisma.workflowExecution.update({
         where: { id: execution.id },
-        data: { status: 'BLOCKED' },
+        data: { status: 'blocked' as any },
       });
 
       // Req 6.4 — notify project owner that workflow is blocked
@@ -224,7 +224,7 @@ export class OrchestrationService {
     }
     await this.prisma.workflowExecution.update({
       where: { id: executionId },
-      data: { status: 'PAUSED' },
+      data: { status: 'paused' as any },
     });
     return this.getExecutionStatus(executionId);
   }
@@ -236,7 +236,7 @@ export class OrchestrationService {
     }
     await this.prisma.workflowExecution.update({
       where: { id: executionId },
-      data: { status: 'RUNNING' },
+      data: { status: 'running' as any },
     });
     const eligible = await this.scheduler.getEligibleTaskIds(executionId);
     const cfg = execution.config as WorkflowConfig | null;
@@ -273,12 +273,12 @@ export class OrchestrationService {
         workflowExecutionId: executionId,
         status: { in: ['PENDING', 'STARTING', 'RUNNING'] },
       },
-      data: { status: 'CANCELLED' },
+      data: { status: 'cancelled' as any },
     });
 
     await this.prisma.workflowExecution.update({
       where: { id: executionId },
-      data: { status: 'CANCELLED', completedAt: new Date() },
+      data: { status: 'cancelled' as any, completedAt: new Date() },
     });
     this.logger.log(`Execution ${executionId} cancelled`);
     this.audit.log({
@@ -368,7 +368,7 @@ export class OrchestrationService {
         // Retry — reset task to PENDING
         await this.prisma.workflowTask.update({
           where: { id: dto.taskId },
-          data: { status: 'PENDING', retryCount: { increment: 1 }, error: null },
+          data: { status: 'pending' as any, retryCount: { increment: 1 }, error: null },
         });
         this.logger.warn(
           `Task ${dto.taskId} failed — retry ${task.retryCount + 1}/${maxRetries}`,
@@ -430,7 +430,7 @@ export class OrchestrationService {
   // ──────────────────────────────────────────────────────────────────────
   async detectTimedOutAgents() {
     const runningInstances = await this.prisma.agentInstance.findMany({
-      where: { status: 'RUNNING', lastHeartbeat: { not: null } },
+      where: { status: 'running' as any, lastHeartbeat: { not: null } },
     });
 
     const now = Date.now();
@@ -444,11 +444,11 @@ export class OrchestrationService {
         await this.prisma.$transaction([
           this.prisma.agentInstance.update({
             where: { id: inst.id },
-            data: { status: 'TIMED_OUT', completedAt: new Date(), error: 'Heartbeat timeout' },
+            data: { status: 'timed_out' as any, completedAt: new Date(), error: 'Heartbeat timeout' },
           }),
           this.prisma.workflowTask.update({
             where: { id: inst.workflowTaskId },
-            data: { status: 'TIMED_OUT', error: 'Agent heartbeat timeout' },
+            data: { status: 'timed_out' as any, error: 'Agent heartbeat timeout' },
           }),
         ]);
         this.logger.warn(`Agent instance ${inst.id} timed out (no heartbeat for ${Math.round((now - lastBeat) / 1000)}s)`);
@@ -505,7 +505,7 @@ export class OrchestrationService {
         where: { workflowExecutionId: executionId, status: { in: ['FAILED', 'TIMED_OUT'] } },
       }),
       this.prisma.workflowTask.count({
-        where: { workflowExecutionId: executionId, status: 'DONE' },
+        where: { workflowExecutionId: executionId, status: 'done' as any },
       }),
       this.prisma.workflowExecution.findUnique({
         where: { id: executionId },

@@ -62,8 +62,8 @@ export class SchedulerService {
   ): Promise<string[]> {
     const running = await this.prisma.workflowTask.count({
       where: {
-        execution: { projectId, status: 'RUNNING' },
-        status: { in: ['STARTING', 'RUNNING'] },
+        execution: { projectId, status: 'running' as any },
+        status: { in: ['starting', 'running'] },
       },
     });
 
@@ -80,7 +80,7 @@ export class SchedulerService {
 
       await this.prisma.workflowTask.update({
         where: { id: taskId },
-        data: { status: 'STARTING', startedAt: new Date() },
+        data: { status: 'starting' as any, startedAt: new Date() },
       });
 
       const cfg = task.execution.config as WorkflowConfig | null;
@@ -105,7 +105,7 @@ export class SchedulerService {
           workflowTaskId: taskId,
           agentProfileId: task.agentProfileId,
           sessionId: session.id,
-          status: 'STARTING',
+          status: 'starting' as any,
           startedAt: new Date(),
           heartbeatIntervalSec,
         },
@@ -141,11 +141,11 @@ export class SchedulerService {
         // Fallback: mark RUNNING when no executor wired (e.g. tests)
         await this.prisma.agentInstance.update({
           where: { id: instance.id },
-          data: { status: 'RUNNING', lastHeartbeat: new Date() },
+          data: { status: 'running' as any, lastHeartbeat: new Date() },
         });
         await this.prisma.workflowTask.update({
           where: { id: taskId },
-          data: { status: 'RUNNING' },
+          data: { status: 'running' as any },
         });
       }
 
