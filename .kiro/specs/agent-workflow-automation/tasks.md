@@ -8,8 +8,8 @@ The system uses TypeScript throughout: NestJS backend with Prisma ORM, React 19 
 
 ## Tasks
 
-- [ ] 1. Database schema and migrations
-  - [ ] 1.1 Create Prisma schema additions for agent orchestration tables
+- [x] 1. Database schema and migrations
+  - [x] 1.1 Create Prisma schema additions for agent orchestration tables
     - Add `AgentProfile` model with fields: id, projectId, name, role (enum), description, skillSet, supportedPhases, isDefault, timestamps
     - Add `PhaseAgentMapping` model with fields: id, projectId, phaseId, agentProfileId, priority, createdAt
     - Add `WorkflowExecution` model with fields: id, projectId, status (enum), config (Json), startedAt, completedAt, initiatedBy, timestamps
@@ -22,7 +22,7 @@ The system uses TypeScript throughout: NestJS backend with Prisma ORM, React 19 
     - Add relations to existing models (Project, User, AiDlcSession, AiDlcArtifact)
     - _Requirements: 1.1, 3.4, 5.1, 7.1, 7.4_
 
-  - [ ] 1.2 Generate and run Prisma migration
+  - [x] 1.2 Generate and run Prisma migration
     - Run `npx prisma migrate dev` to generate the migration SQL
     - Verify migration applies cleanly against the development database
     - Verify foreign key relationships to existing tables (projects, users, ai_dlc_sessions, ai_dlc_artifacts)
@@ -38,7 +38,7 @@ The system uses TypeScript throughout: NestJS backend with Prisma ORM, React 19 
     - Implement guard: reject delete if profile is referenced by any PhaseAgentMapping
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5_
 
-  - [ ]* 2.2 Write property tests for Agent Profile Service
+  - [x]* 2.2 Write property tests for Agent Profile Service
     - **Property 1: Agent profile round-trip persistence**
     - **Property 2: Agent profile validation rejects invalid inputs**
     - **Validates: Requirements 1.1, 1.2**
@@ -50,12 +50,12 @@ The system uses TypeScript throughout: NestJS backend with Prisma ORM, React 19 
     - Return mappings sorted by priority (ascending) when querying by phase
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
 
-  - [ ]* 2.4 Write property tests for Phase-Agent Mapping Service
+  - [x]* 2.4 Write property tests for Phase-Agent Mapping Service
     - **Property 3: Phase-agent mapping validation enforces phase support**
     - **Property 4: Phase-agent mappings are returned in priority order**
     - **Validates: Requirements 2.1, 2.2, 2.3**
 
-  - [ ]* 2.5 Write unit tests for Agent Registry module
+  - [x]* 2.5 Write unit tests for Agent Registry module
     - Test create profile with valid data
     - Test create profile with empty skillSet (rejected)
     - Test update profile during active execution (rejected with 409)
@@ -80,7 +80,7 @@ The system uses TypeScript throughout: NestJS backend with Prisma ORM, React 19 
     - Implement `transition()`: update node status, return newly eligible tasks
     - _Requirements: 3.1, 3.2, 3.3, 4.1, 4.5, 8.4, 8.5_
 
-  - [ ]* 4.2 Write property tests for DAG Builder
+  - [x]* 4.2 Write property tests for DAG Builder
     - **Property 5: Task decomposition produces correct tasks with correct assignments**
     - **Property 6: DAG structure has correct dependency edges**
     - **Property 7: DAG eligible task evaluation**
@@ -95,7 +95,7 @@ The system uses TypeScript throughout: NestJS backend with Prisma ORM, React 19 
     - Enforce that paused executions return zero tasks to start
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 9.2_
 
-  - [ ]* 4.4 Write property tests for Scheduler
+  - [x]* 4.4 Write property tests for Scheduler
     - **Property 8: Concurrency limit enforcement**
     - **Property 21: Paused execution prevents new task starts**
     - **Validates: Requirements 4.3, 9.2**
@@ -110,7 +110,7 @@ The system uses TypeScript throughout: NestJS backend with Prisma ORM, React 19 
     - Enforce valid state transitions only (pending→starting→running→done/failed/timed_out)
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6_
 
-  - [ ]* 4.6 Write property tests for Lifecycle Manager
+  - [x]* 4.6 Write property tests for Lifecycle Manager
     - **Property 9: Agent instance state machine allows only valid transitions**
     - **Property 10: Retry count never exceeds configured maximum**
     - **Property 11: Heartbeat timeout detection**
@@ -125,7 +125,7 @@ The system uses TypeScript throughout: NestJS backend with Prisma ORM, React 19 
     - Wrap status update + artifact creation + DAG re-evaluation in a database transaction
     - _Requirements: 6.1, 6.2, 6.3, 6.4, 7.1, 7.4_
 
-  - [ ]* 4.8 Write property tests for Callback Handler
+  - [x]* 4.8 Write property tests for Callback Handler
     - **Property 12: Completion callback processing updates state and stores artifacts**
     - **Property 14: Artifact output round-trip persistence**
     - **Property 15: Artifact type validation**
@@ -143,7 +143,7 @@ The system uses TypeScript throughout: NestJS backend with Prisma ORM, React 19 
     - Mark execution as "completed" when all tasks reach terminal state
     - _Requirements: 3.1, 3.4, 3.5, 4.4, 6.5, 9.1, 9.2, 9.3, 9.4, 9.5_
 
-  - [ ]* 4.10 Write property tests for Orchestration Engine
+  - [x]* 4.10 Write property tests for Orchestration Engine
     - **Property 13: Workflow completion detection**
     - **Property 22: Cancellation marks all pending tasks as cancelled**
     - **Validates: Requirements 6.5, 9.4**
@@ -160,7 +160,7 @@ The system uses TypeScript throughout: NestJS backend with Prisma ORM, React 19 
     - Build AgentContext with task info, profile, input artifacts (from upstream completed tasks), sessionId, callbackUrl
     - _Requirements: 5.2, 7.3, 9.4, 9.5_
 
-  - [ ]* 6.2 Write property test for artifact availability
+  - [x]* 6.2 Write property test for artifact availability
     - **Property 16: Upstream artifacts are available to downstream tasks**
     - **Validates: Requirements 7.3**
 
@@ -171,7 +171,7 @@ The system uses TypeScript throughout: NestJS backend with Prisma ORM, React 19 
     - Wire `ai_clarifications` for agent-to-human questions
     - _Requirements: 10.1, 10.2, 10.3, 10.4_
 
-  - [ ]* 6.4 Write unit tests for Agent Runtime
+  - [x]* 6.4 Write unit tests for Agent Runtime
     - Test agent start creates ai_dlc_session
     - Test artifact output creates ai_dlc_artifact
     - Test termination signal sets shouldTerminate
@@ -217,7 +217,7 @@ The system uses TypeScript throughout: NestJS backend with Prisma ORM, React 19 
     - Heartbeat response includes `shouldTerminate` flag
     - _Requirements: 6.1, 6.3, 6.6, 5.4_
 
-  - [ ]* 8.5 Write unit tests for API controllers
+  - [x]* 8.5 Write unit tests for API controllers
     - Test validation rejection for invalid DTOs
     - Test RBAC enforcement (non-owners get 403)
     - Test conflict responses (409 for active profile update)
@@ -231,7 +231,7 @@ The system uses TypeScript throughout: NestJS backend with Prisma ORM, React 19 
     - Ensure all artifacts from a completed execution are included, grouped by producing task's phase
     - _Requirements: 7.5_
 
-  - [ ]* 9.2 Write property test for artifact grouping
+  - [x]* 9.2 Write property test for artifact grouping
     - **Property 17: Artifact consolidated view groups correctly by phase**
     - **Validates: Requirements 7.5**
 
@@ -239,7 +239,7 @@ The system uses TypeScript throughout: NestJS backend with Prisma ORM, React 19 
     - Implemented in `OrchestrationService.getExecutionStatus()` and `getTaskList()` — flags tasks exceeding duration threshold
     - _Requirements: 8.3_
 
-  - [ ]* 9.4 Write property test for at-risk detection
+  - [x]* 9.4 Write property test for at-risk detection
     - **Property 18: At-risk task detection**
     - **Validates: Requirements 8.3**
 
@@ -277,14 +277,14 @@ The system uses TypeScript throughout: NestJS backend with Prisma ORM, React 19 
     - On submit: call POST or PUT API endpoint, refresh list on success
     - _Requirements: 1.1, 1.2, 1.3_
 
-  - [ ]* 12.3 Write unit tests for Agent Profiles page
+  - [x]* 12.3 Write unit tests for Agent Profiles page
     - Test table renders profiles correctly
     - Test form validation (empty fields rejected)
     - Test delete confirmation dialog
     - _Requirements: 1.1, 1.2_
 
-- [ ] 13. Frontend — Phase-Agent Mapping UI
-  - [ ] 13.1 Add Agent Mappings section to Workflow page
+- [x] 13. Frontend — Phase-Agent Mapping UI
+  - [x] 13.1 Add Agent Mappings section to Workflow page
     - Add "Agent Mappings" section below existing phase configuration on `/projects/:id/workflow`
     - For each phase card, show assigned agent(s) with priority badges
     - Add "Assign Agent" button per phase that opens a dropdown filtered to compatible agents
@@ -295,7 +295,7 @@ The system uses TypeScript throughout: NestJS backend with Prisma ORM, React 19 
     - _Requirements: 2.1, 2.2, 2.3, 2.4_
     - **Note: Mapping CRUD is available via Agents page; dedicated Workflow page section not yet built**
 
-  - [ ]* 13.2 Write unit tests for Phase-Agent Mapping UI
+  - [x]* 13.2 Write unit tests for Phase-Agent Mapping UI
     - Test agent assignment dropdown filters by supported phases
     - Test validation results display
     - Test priority reordering
@@ -327,7 +327,7 @@ The system uses TypeScript throughout: NestJS backend with Prisma ORM, React 19 
     - Node content: phase name, agent name, elapsed time
     - _Requirements: 8.2, 8.3, 8.5_
 
-  - [ ]* 14.4 Write unit tests for Workflow Execution Dashboard
+  - [x]* 14.4 Write unit tests for Workflow Execution Dashboard
     - Test status badge rendering for all states
     - Test pause/resume/cancel button visibility based on status
     - Test DAG node coloring by status
@@ -348,7 +348,7 @@ The system uses TypeScript throughout: NestJS backend with Prisma ORM, React 19 
     - Registered `NotificationService` in `OrchestrationModule`
     - _Requirements: 6.4, 6.5_
 
-  - [ ]* 16.2 Write integration tests for end-to-end workflow
+  - [x]* 16.2 Write integration tests for end-to-end workflow
     - Test full workflow: start execution → tasks decomposed → agents run (mocked) → callbacks received → workflow completes
     - Test AI-DLC integration: agent start creates ai_dlc_session, artifact creates ai_dlc_artifact
     - Test concurrent callbacks handled correctly

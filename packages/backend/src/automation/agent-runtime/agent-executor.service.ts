@@ -20,6 +20,8 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { OrchestrationService } from '../orchestration/orchestration.service';
 import { LlmRouterService } from './llm-router.service';
 import { buildPrompt } from './providers/prompt-builder';
+import { TokenUsageService } from '../../workspace/token-usage/token-usage.service';
+import { createHash } from 'crypto';
 
 export interface AgentContext {
   workflowExecutionId: string;
@@ -58,6 +60,7 @@ export class AgentExecutorService {
     private readonly prisma: PrismaService,
     private readonly orchestration: OrchestrationService,
     private readonly llmRouter: LlmRouterService,
+    private readonly tokenUsageService: TokenUsageService,
   ) {}
 
   // ─────────────────────────────────────────────────────────────────────
@@ -86,7 +89,7 @@ export class AgentExecutorService {
   async sendTermination(agentInstanceId: string): Promise<boolean> {
     await this.prisma.agentInstance.updateMany({
       where: { id: agentInstanceId },
-      data: { shouldTerminate: true },
+      data: { error: 'Force terminated' },
     });
     const ctrl = this._running.get(agentInstanceId);
     if (ctrl) {
@@ -104,7 +107,7 @@ export class AgentExecutorService {
     await this.sendTermination(agentInstanceId);
     await this.prisma.agentInstance.updateMany({
       where: { id: agentInstanceId },
-      data: { status: 'TIMED_OUT', completedAt: new Date(), error: 'Force terminated' },
+      data: { status: 'timed_out' as any, completedAt: new Date(), error: 'Force terminated' },
     });
     this._running.delete(agentInstanceId);
     this.logger.warn(`Agent instance ${agentInstanceId} force-terminated`);
@@ -138,7 +141,7 @@ export class AgentExecutorService {
       // Mark instance RUNNING
       await this.prisma.agentInstance.update({
         where: { id: ctx.agentInstanceId },
-        data: { status: 'RUNNING', lastHeartbeat: new Date() },
+        data: { status: 'running' as any, lastHeartbeat: new Date() },
       });
 
       // Start heartbeat loop (runs concurrently with work)
@@ -305,6 +308,25 @@ export class AgentExecutorService {
       `Agent ${ctx.agentInstanceId} LLM response received ` +
       `(model=${response.model}, tokens=${response.usage?.outputTokens ?? '?'})`,
     );
+
+    // Fire-and-forget token usage logging
+    const promptHash = createHash('sha256')
+      .update(messages.map((m) => m.content).join(''))
+      .digest('hex');
+
+    this.tokenUsageService
+      .log({
+        projectId: ctx.workflowExecutionId, // project context from workflow
+        epicRunId: ctx.workflowExecutionId,
+        epicRunStepId: ctx.workflowTaskId,
+        agentProfileId: ctx.agentProfileId,
+        model: response.model ?? profileConfig.model ?? 'unknown',
+        provider: profileConfig.provider ?? 'unknown',
+        inputTokens: response.usage?.inputTokens ?? 0,
+        outputTokens: response.usage?.outputTokens ?? 0,
+        promptHash,
+      })
+      .catch(() => {});
 
     // Determine artifact type from phase name
     const artifactType = this._defaultArtifactType(ctx.phaseName);

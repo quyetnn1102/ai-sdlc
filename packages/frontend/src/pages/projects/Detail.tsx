@@ -29,8 +29,7 @@ export function ProjectDetailPage() {
     { path: `/projects/${id}/tests`,      label: 'Tests' },
     { path: `/projects/${id}/test-plans`, label: 'Test Plans' },
     { path: `/projects/${id}/incidents`,  label: 'Incidents' },
-    { path: `/projects/${id}/agents`,     label: 'Agents' },
-    { path: `/projects/${id}/executions`, label: 'Run Workflow' },
+    { path: `/projects/${id}/workspace`,  label: '⚡ Workspace' },
     { path: `/projects/${id}/settings`,   label: t('projects.settings') },
   ];
 

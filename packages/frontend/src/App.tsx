@@ -34,6 +34,11 @@ import { IncidentsPage } from './pages/projects/Incidents';
 import { AgentsPage } from './pages/projects/Agents';
 import { ExecutionsPage } from './pages/projects/Executions';
 
+// Projects – v5 workspace builder
+import { WorkspaceBuilder } from './features/workspace/pages/WorkspaceBuilder';
+import { EpicRunDetail } from './features/workspace/pages/EpicRunDetail';
+import { EpicsListPage } from './features/workspace/pages/EpicsListPage';
+
 export default function App() {
   return (
     <Routes>
@@ -68,6 +73,9 @@ export default function App() {
           <Route path="/projects/:id/incidents" element={<IncidentsPage />} />
           <Route path="/projects/:id/agents"    element={<AgentsPage />} />
           <Route path="/projects/:id/executions" element={<ExecutionsPage />} />
+          <Route path="/projects/:id/workspace"  element={<WorkspaceBuilder />} />
+          <Route path="/projects/:id/workspace/epics" element={<EpicsListPage />} />
+          <Route path="/projects/:id/workspace/runs/:runId" element={<EpicRunDetail />} />
           <Route path="/projects/:id/settings"  element={<SettingsPage />} />
 
           {/* Fallback */}

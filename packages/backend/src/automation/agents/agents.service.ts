@@ -120,7 +120,7 @@ export class AgentsService {
       data: {
         projectId,
         name: dto.name,
-        role: dto.role,
+        role: dto.role as any,
         description: dto.description,
         skillSet: dto.skillSet,
         supportedPhases: dto.supportedPhases,
@@ -144,7 +144,7 @@ export class AgentsService {
     const [data, total] = await Promise.all([
       this.prisma.agentProfile.findMany({
         where,
-        include: { _count: { select: { phaseMappings: true } } },
+        include: { _count: { select: { agentSkills: true } } },
         orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
         skip,
         take: limit,
@@ -158,7 +158,7 @@ export class AgentsService {
   async getProfile(id: string) {
     const profile = await this.prisma.agentProfile.findUnique({
       where: { id },
-      include: { phaseMappings: true },
+      include: { agentSkills: true },
     });
     if (!profile) throw new NotFoundException('Agent profile not found');
     return profile;
@@ -171,7 +171,7 @@ export class AgentsService {
     const runningUsage = await this.prisma.workflowTask.findFirst({
       where: {
         agentProfileId: id,
-        execution: { status: 'RUNNING' },
+        execution: { status: 'running' },
       },
     });
     if (runningUsage) {
